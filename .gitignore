@@ -1,0 +1,93 @@
+# =====================
+# Python
+# =====================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+.eggs/
+
+# =====================
+# Virtual Environments
+# =====================
+.venv/
+venv/
+ENV/
+env/
+
+# =====================
+# FastAPI / Uvicorn / Gunicorn
+# =====================
+*.log
+*.pid
+
+# =====================
+# IDE / Editors
+# =====================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =====================
+# Testing & Coverage
+# =====================
+htmlcov/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# =====================
+# Mypy / Pylint / Ruff
+# =====================
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+ruff_cache/
+
+# =====================
+# Jupyter / Notebooks
+# =====================
+.ipynb_checkpoints/
+*.ipynb
+
+# =====================
+# Environments / Secrets
+# =====================
+.env
+.env.*
+*.db
+*.sqlite3
+
+# =====================
+# Build & Packaging
+# =====================
+build/
+dist/
+*.spec
+*.lock
+Pipfile.lock
+poetry.lock
+
+# =====================
+# Docker
+# =====================
+*.tar
+*.bak
+docker-compose.override.yml
+
+# =====================
+# Misc
+# =====================
+.DS_Store
+Thumbs.db
