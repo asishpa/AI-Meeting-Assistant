@@ -25,7 +25,22 @@ class SignupError(HTTPException):
             "message": message,
             "details": self.details
         })
-
+class AuthError(HTTPException):
+    """ Custom exception in case of authentication failure """
+    def __init__(
+            self,
+            error_code: ErrorCode,
+            message: str,
+            status_code: int = status.HTTP_401_UNAUTHORIZED,
+            details: Optional[Dict[str, Any]] = None
+    ):
+        self.error_code = error_code
+        self.details = details or {}
+        super().__init__(status_code=status_code, detail={
+            "error_code": self.error_code,
+            "message": message,
+            "details": self.details
+        })
 class SignupErrorMessages:
     """ Error messages for signup failures """
     USER_NOT_FOUND = "User not found"

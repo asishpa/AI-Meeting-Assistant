@@ -9,4 +9,8 @@ alembic==1.13.1
 psycopg2-binary==2.9.9
 python-multipart
 asyncpg==0.27.0
-
+playwright==1.54.0
+openai-whisper==20250625
+celery==5.5.3
+redis==6.4.0
+selenium>=4.16.0
