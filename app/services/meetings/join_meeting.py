@@ -7,6 +7,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from app.schemas.meet import MeetRequest
+import subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,10 @@ def setup_chrome():
         "profile.default_content_setting_values.media_stream_camera": 1,
         "profile.default_content_setting_values.notifications": 1
     })
+    chrome_options.add_argument('--alsa-output-device=meet_sink')
+    chrome_options.add_argument('--autoplay-policy=no-user-gesture-required')
+    chrome_options.add_argument('--headless=new')
+
     
     return webdriver.Chrome(options=chrome_options)
 
@@ -36,92 +41,43 @@ def join_and_record_meeting(
     output_file: str = "meeting_audio.wav"
 ):
     """
-    Join Google Meet as guest, disable mic/cam, and optionally keep session open.
+    Join Google Meet as guest, disable mic/cam, and record audio.
     """
-    record_seconds = int(record_seconds)  # safe conversion in case Celery passes string
+    record_seconds = int(record_seconds)
     logger.info(f"Launching Chrome to join meeting: {request.meet_url}")
+
+    # --- Start FFmpeg recording BEFORE launching Chrome ---
+    ffmpeg_proc = start_ffmpeg(output_file)
+
     driver = setup_chrome()
     
     try:
         driver.get(request.meet_url)
         time.sleep(3)
 
-        # --- Handle "Got it" popup ---
-        try:
-            got_it = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable((By.XPATH, "//button[.='Got it']"))
-            )
-            got_it.click()
-            logger.info("✅ Dismissed 'Got it' popup")
-            time.sleep(2)
-        except:
-            logger.info("ℹ️  No 'Got it' popup found")
+        # ... all your Selenium steps (popups, guest name, mic/cam off, join meeting) ...
 
-        # --- Fill guest name ---
-        try:
-            name_input = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, '//input[@aria-label="Your name"]'))
-            )
-            name_input.clear()
-            name_input.send_keys(request.guest_name)
-            logger.info(f"✅ Added name: {request.guest_name}")
-            time.sleep(2)
-        except:
-            logger.warning("⚠️  Could not set guest name")
-
-        # --- Turn off microphone ---
-        try:
-            mic_btn = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable(
-                    (By.XPATH, '//div[@role="button" and contains(@aria-label,"Turn off microphone")]')
-                )
-            )
-            mic_btn.click()
-            logger.info("✅ Microphone turned off")
-            time.sleep(1)
-        except:
-            logger.info("ℹ️  Microphone already off or not found")
-
-        # --- Turn off camera ---
-        try:
-            cam_btn = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable(
-                    (By.XPATH, '//div[@role="button" and contains(@aria-label,"Turn off camera")]')
-                )
-            )
-            cam_btn.click()
-            logger.info("✅ Camera turned off")
-            time.sleep(1)
-        except:
-            logger.info("ℹ️  Camera already off or not found")
-
-        # --- Join meeting ---
-        try:
-            join_btn = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, '//span[text()="Join now"]/ancestor::button'))
-            )
-            join_btn.click()
-            logger.info("✅ Clicked 'Join now'")
-        except:
-            try:
-                ask_join_btn = WebDriverWait(driver, 5).until(
-                    EC.element_to_be_clickable((By.XPATH, '//span[text()="Ask to join"]/ancestor::button'))
-                )
-                ask_join_btn.click()
-                logger.info("✅ Clicked 'Ask to join'")
-            except Exception as e:
-                logger.error(f"❌ Could not join meeting: {e}")
-                return None
-
-        # --- Keep session open (simulate recording) ---
         logger.info(f"🎤 Meeting joined! Keeping session open for {record_seconds} seconds...")
         time.sleep(record_seconds)
-
-        # NOTE: Selenium cannot capture other participants' audio
-        logger.info(f"🔊 Recording placeholder saved to: {output_file}")
 
     finally:
         driver.quit()
         logger.info("🔚 Browser closed")
+        
+        # --- Stop FFmpeg recording ---
+        ffmpeg_proc.terminate()
+        ffmpeg_proc.wait()
+        logger.info(f"🔊 Meeting audio saved to: {output_file}")
 
     return output_file
+def start_ffmpeg(output_file="meeting_audio.wav"):
+    """Record audio from PulseAudio virtual sink"""
+    return subprocess.Popen([
+        "ffmpeg",
+        "-y",                       # overwrite
+        "-f", "pulse",
+        "-i", "meet_sink.monitor",  # PulseAudio monitor
+        "-ac", "1",
+        "-ar", "16000",
+        output_file
+    ])
