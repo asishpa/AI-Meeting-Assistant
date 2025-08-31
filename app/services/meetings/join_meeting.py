@@ -22,7 +22,7 @@ def setup_chrome():
     chrome_options.add_argument(f'--user-data-dir={profile_dir}')
     chrome_options.add_argument('--profile-directory=Default')
     chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-    chrome_options.add_argument('--start-maximized')
+    #chrome_options.add_argument('--start-maximized')
     chrome_options.add_experimental_option("prefs", {
         "profile.default_content_setting_values.media_stream_mic": 1,
         "profile.default_content_setting_values.media_stream_camera": 1,
@@ -30,7 +30,7 @@ def setup_chrome():
     })
     chrome_options.add_argument('--alsa-output-device=meet_sink')
     chrome_options.add_argument('--autoplay-policy=no-user-gesture-required')
-    chrome_options.add_argument('--headless=new')
+    #chrome_options.add_argument('--headless=new')
 
     return webdriver.Chrome(options=chrome_options)
 
