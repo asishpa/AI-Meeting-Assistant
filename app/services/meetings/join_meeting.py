@@ -5,6 +5,7 @@ import subprocess
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service  # ADD THIS IMPORT
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from app.schemas.meet import MeetRequest
@@ -30,9 +31,19 @@ def setup_chrome():
     })
     chrome_options.add_argument('--alsa-output-device=meet_sink')
     chrome_options.add_argument('--autoplay-policy=no-user-gesture-required')
-    chrome_options.add_argument('--headless=new')
+    # chrome_options.add_argument('--headless=new')  # Commented out for testing
+    
+    # Add these additional arguments for better stability
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--disable-extensions')
 
-    return webdriver.Chrome(options=chrome_options)
+    # Set up the service (this was missing!)
+    service = Service("/usr/bin/chromedriver")
+    
+    # Return driver with service configuration
+    return webdriver.Chrome(service=service, options=chrome_options)
 
 def start_ffmpeg(output_file="meeting_audio.wav"):
     """Record audio from PulseAudio virtual sink"""
@@ -83,21 +94,61 @@ def join_and_record_meeting(
         except Exception:
             logger.warning("⚠️ Could not find camera button")
 
-        # --- Click "Join now" ---
+        # --- Enter name in the text field ---
         try:
-            join_button = WebDriverWait(driver, 15).until(
-                EC.element_to_be_clickable((By.XPATH, "//span[text()='Join now']/ancestor::button"))
+            name_input = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "//input[@aria-label='Your name']"))
             )
-            join_button.click()
-            logger.info("✅ Clicked Join now")
-        except Exception:
-            logger.warning("⚠️ Could not click 'Join now' button")
+            guest_name = getattr(request, 'guest_name', 'Meeting Bot')  # Use provided name or default
+            name_input.clear()
+            name_input.send_keys(guest_name)
+            logger.info(f"✅ Entered name: {guest_name}")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not enter name: {e}")
 
-        # --- Wait until inside meeting ("Leave call" button appears) ---
-        WebDriverWait(driver, 30).until(
-            EC.presence_of_element_located((By.XPATH, "//button[@aria-label='Leave call']"))
-        )
-        logger.info("✅ Successfully joined the meeting")
+        # --- Click "Ask to join" button ---
+        try:
+            ask_to_join_button = WebDriverWait(driver, 15).until(
+                EC.element_to_be_clickable((By.XPATH, "//span[text()='Ask to join']/ancestor::button"))
+            )
+            ask_to_join_button.click()
+            logger.info("✅ Clicked Ask to join")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not click 'Ask to join' button: {e}")
+            # Fallback: try to find "Join now" button if "Ask to join" fails
+            try:
+                join_button = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable((By.XPATH, "//span[text()='Join now']/ancestor::button"))
+                )
+                join_button.click()
+                logger.info("✅ Clicked Join now (fallback)")
+            except Exception:
+                logger.warning("⚠️ Could not find either 'Ask to join' or 'Join now' button")
+
+        # --- Wait until inside meeting or for host approval ---
+        try:
+            # First wait for either successful join or waiting for approval
+            WebDriverWait(driver, 30).until(
+                lambda driver: (
+                    driver.find_elements(By.XPATH, "//button[@aria-label='Leave call']") or  # Successfully joined
+                    driver.find_elements(By.XPATH, "//*[contains(text(), 'Waiting for') or contains(text(), 'asking to join')]")  # Waiting for approval
+                )
+            )
+            
+            # Check if we're in the meeting or waiting
+            if driver.find_elements(By.XPATH, "//button[@aria-label='Leave call']"):
+                logger.info("✅ Successfully joined the meeting")
+            else:
+                logger.info("⏳ Waiting for host approval to join the meeting")
+                # Wait a bit longer for host approval
+                WebDriverWait(driver, 60).until(
+                    EC.presence_of_element_located((By.XPATH, "//button[@aria-label='Leave call']"))
+                )
+                logger.info("✅ Host approved - now in the meeting")
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to join meeting: {e}")
+            raise
 
         # --- Start FFmpeg only after joining ---
         ffmpeg_proc = start_ffmpeg(output_file)
