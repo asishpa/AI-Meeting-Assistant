@@ -1,34 +1,57 @@
+import uuid
+import docker  # pip install docker
 from celery import Celery
-from app.services.meetings.join_meeting import join_and_record_meeting
-from app.utils.transcript import transcribe_file
-import asyncio
 
 celery_app = Celery(
     "meeting_worker",
-    broker="redis://localhost:6379/0",   # redis service from docker-compose
+    broker="redis://localhost:6379/0",
     backend="redis://localhost:6379/0"
 )
 
 @celery_app.task
 def record_meeting_task(request_data: dict):
     """
-    Celery task to record meeting + generate transcript.
+    Launch a dedicated Docker container for each meeting.
     """
-    async def run():
-        from app.schemas.meet import MeetRequest
-        request = MeetRequest(**request_data)
+    client = docker.from_env()
 
-        audio_file = "meeting_audio.wav"
-        transcript_file = "meeting_transcript.txt"
+    # Unique output filenames
+    meeting_id = str(uuid.uuid4())
+    audio_file = f"meeting_{meeting_id}.wav"
+    transcript_file = f"meeting_{meeting_id}.txt"
 
-        recorded_file = join_and_record_meeting(
-        request,
-        record_seconds=60,           # duration to keep the session open
-        output_file="meeting_audio.wav"  # filename for future processing
-)
+    # Run the container
+    container = client.containers.run(
+        "my-meeting-recorder:latest",   # Your image
+        detach=True,
+        remove=True,  # auto-cleanup
+        environment={
+            "MEET_URL": request_data["meet_url"],
+            "GUEST_NAME": request_data.get("guest_name", "Meeting Bot"),
+            "RECORD_SECONDS": str(request_data.get("record_seconds", 60)),
+            "OUTPUT_FILE": audio_file,
+            "TRANSCRIPT_FILE": transcript_file,
+        },
+        volumes={
+            "/var/meetings": {  # host dir for storing results
+                "bind": "/output",
+                "mode": "rw",
+            }
+        },
+        working_dir="/app"
+    )
 
-        transcript = transcribe_file(recorded_file, transcript_file)
+    # Wait until container finishes
+    logs = container.logs(stream=True)
+    for line in logs:
+        print(line.decode().strip())
 
-        return transcript
+    exit_code = container.wait()["StatusCode"]
 
-    return asyncio.run(run())
+    if exit_code != 0:
+        raise RuntimeError(f"Meeting bot failed with exit code {exit_code}")
+
+    return {
+        "audio_file": f"/var/meetings/{audio_file}",
+        "transcript_file": f"/var/meetings/{transcript_file}"
+    }
