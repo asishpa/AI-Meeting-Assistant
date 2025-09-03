@@ -3,6 +3,7 @@ import os
 import logging
 
 logger = logging.getLogger(__name__)
+
 aai.settings.api_key = os.getenv("ASSEMBLYAI_API_KEY")
 
 def transcribe_file(audio_file: str, transcript_file: str) -> str:
@@ -12,6 +13,7 @@ def transcribe_file(audio_file: str, transcript_file: str) -> str:
     """
     try:
         logger.info(f"📝 Transcribing audio file: {audio_file}")
+        logger.info(os.getenv("ASSEMBLYAI_API_KEY"))
 
         # Configure transcription with speaker diarization
         config = aai.TranscriptionConfig(
