@@ -9,6 +9,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from app.schemas.meet import MeetRequest
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -94,12 +95,39 @@ def move_chrome_to_sink(sink_name="meet_sink", retries=15, delay=2):
     except Exception as e:
         logger.error(f"❌ Failed to move Chrome stream: {e}")
         return False
-
+def scrape_captions(driver, output_file="captions.txt", interval=2):
+    """
+    Continuously scrape live captions from Google Meet and save to a file.
+    """
+    seen = set()
+    with open(output_file, "w", encoding="utf-8") as f:
+        while True:
+            try:
+                container = driver.find_element(By.XPATH, "//div[@role='region' and @aria-label='Captions']")
+                blocks = container.find_elements(By.XPATH, ".//div[contains(@class,'nMcdL')]")
+                for block in blocks:
+                    try:
+                        speaker = block.find_element(By.CSS_SELECTOR, ".NWpY1d").text
+                    except:
+                        speaker = "Unknown"
+                    try:
+                        text = block.find_element(By.CSS_SELECTOR, ".VbkSUe").text
+                    except:
+                        text = ""
+                    entry = f"{speaker}: {text}"
+                    if entry not in seen and text.strip():
+                        seen.add(entry)
+                        f.write(entry + "\n")
+                        f.flush()
+            except Exception:
+                pass
+            time.sleep(interval)
 
 def join_and_record_meeting(
     request: MeetRequest,
     record_seconds: int = 60,
-    output_file: str = "meeting_audio.wav"
+    output_file: str = "meeting_audio.wav",
+    captions_file: str = "captions.txt"
 ):
     """
     Join Google Meet as guest, disable mic/cam, and record audio.
@@ -182,9 +210,27 @@ def join_and_record_meeting(
         except Exception as e:
             logger.error(f"❌ Failed to join meeting: {e}")
             raise
+        # --- Turn on captions (AFTER join) ---
+        try:
+            captions_button = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.XPATH, "//button[contains(@aria-label, 'captions')]"))
+            )
+            if "Turn on captions" in captions_button.get_attribute("aria-label"):
+                captions_button.click()
+                logger.info("💬 Captions turned ON")
+            else:
+                logger.info("💬 Captions already ON")
+        except Exception:
+            logger.warning("⚠️ Could not enable captions")
 
         # --- Move Chrome audio to virtual sink ---
         move_chrome_to_sink("meet_sink")
+        # --- Start captions scraping in background ---
+        caption_thread = threading.Thread(
+            target=scrape_captions, args=(driver, captions_file), daemon=True
+        )
+        caption_thread.start()
+        logger.info("📝 Started captions scraping")
 
         # --- Start recording ---
         ffmpeg_proc = start_ffmpeg(output_file)
@@ -203,4 +249,4 @@ def join_and_record_meeting(
             except Exception as e:
                 logger.warning(f"⚠️ Failed to stop FFmpeg: {e}")
 
-    return output_file
+    return output_file, captions_file

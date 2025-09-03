@@ -12,23 +12,32 @@ celery_app = Celery(
 @celery_app.task
 def record_meeting_task(request_data: dict):
     """
-    Celery task to record meeting + generate transcript.
+    Celery task to record meeting + generate transcript + capture captions.
     """
     async def run():
         from app.schemas.meet import MeetRequest
         request = MeetRequest(**request_data)
 
         audio_file = "meeting_audio.wav"
+        captions_file = "captions.txt"
         transcript_file = "meeting_transcript.txt"
 
-        recorded_file = join_and_record_meeting(
-        request,
-        record_seconds=60,           # duration to keep the session open
-        output_file="meeting_audio.wav"  # filename for future processing
-)
+        recorded_file, captions_file = join_and_record_meeting(
+            request,
+            record_seconds=300,
+            output_file=audio_file,
+            captions_file=captions_file
+        )
 
+        # Generate transcript from recorded audio
         transcript = transcribe_file(recorded_file, transcript_file)
 
-        return transcript
+        return {
+            "audio_file": recorded_file,
+            "captions_file": captions_file,
+            "transcript_file": transcript_file,
+            "transcript": transcript
+        }
 
     return asyncio.run(run())
+
