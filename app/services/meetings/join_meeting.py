@@ -235,7 +235,29 @@ def join_and_record_meeting(
         # --- Start recording ---
         ffmpeg_proc = start_ffmpeg(output_file)
         logger.info(f"🎤 Recording meeting audio for {record_seconds} seconds...")
-        time.sleep(record_seconds)
+        logger.info(f"🎤 Recording meeting audio (max {record_seconds} sec, stop if meeting ends)")
+
+        start_time = time.time()
+        max_wait = min(record_seconds, 300)  # safeguard: never more than 5 mins
+        
+        while True:
+            elapsed = time.time() - start_time
+
+            # 1. Check if meeting ended (Leave call button gone)
+            try:
+                leave_button = driver.find_element(By.XPATH, "//button[@aria-label='Leave call']")
+                if not leave_button.is_displayed():
+                    logger.info("📴 Leave call button disappeared — meeting ended")
+                    break
+            except:
+                logger.info("📴 Leave call button not found — meeting likely ended")
+                break
+
+            # 2. Timeout safeguard
+            if elapsed > max_wait:
+                logger.info("⏳ Max wait reached — stopping recording")
+                break
+            time.sleep(record_seconds)
 
     finally:
         driver.quit()
