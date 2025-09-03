@@ -17,7 +17,7 @@ def transcribe_file(audio_file: str, transcript_file: str) -> str:
         config = aai.TranscriptionConfig(
             speech_model=aai.SpeechModel.universal,
             speaker_labels=True,        # Enable speaker diarization
-            detect_language=True
+            language_detection=True
         )
 
         transcriber = aai.Transcriber(config=config)
