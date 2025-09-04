@@ -95,13 +95,14 @@ def move_chrome_to_sink(sink_name="meet_sink", retries=15, delay=2):
     except Exception as e:
         logger.error(f"❌ Failed to move Chrome stream: {e}")
         return False
-def scrape_captions(driver, output_file="captions.txt", interval=2):
+def scrape_captions(driver, output_file="captions.txt", stop_event=None, interval=2):
     """
     Continuously scrape live captions from Google Meet and save to a file.
+    Stops when stop_event is set.
     """
     seen = set()
     with open(output_file, "w", encoding="utf-8") as f:
-        while True:
+        while not (stop_event and stop_event.is_set()):
             try:
                 container = driver.find_element(By.XPATH, "//div[@role='region' and @aria-label='Captions']")
                 blocks = container.find_elements(By.XPATH, ".//div[contains(@class,'nMcdL')]")
@@ -119,7 +120,7 @@ def scrape_captions(driver, output_file="captions.txt", interval=2):
                         seen.add(entry)
                         f.write(entry + "\n")
                         f.flush()
-            except Exception:
+            except:
                 pass
             time.sleep(interval)
 
@@ -226,8 +227,9 @@ def join_and_record_meeting(
         # --- Move Chrome audio to virtual sink ---
         move_chrome_to_sink("meet_sink")
         # --- Start captions scraping in background ---
+        stop_scraping = threading.Event()
         caption_thread = threading.Thread(
-            target=scrape_captions, args=(driver, captions_file), daemon=True
+            target=scrape_captions, args=(driver, captions_file, stop_scraping), daemon=True
         )
         caption_thread.start()
         logger.info("📝 Started captions scraping")
@@ -260,6 +262,8 @@ def join_and_record_meeting(
             time.sleep(record_seconds)
 
     finally:
+        stop_scraping.set()
+        caption_thread.join(timeout=5)
         driver.quit()
         logger.info("🔚 Browser closed")
 
