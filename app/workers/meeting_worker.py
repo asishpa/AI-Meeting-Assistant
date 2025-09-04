@@ -1,6 +1,6 @@
 from celery import Celery
 from app.services.meetings.join_meeting import join_and_record_meeting
-from app.utils.transcript import transcribe_file
+from app.utils.transcript import transcribe_file_json
 import asyncio
 
 celery_app = Celery(
@@ -30,7 +30,7 @@ def record_meeting_task(request_data: dict):
         )
 
         # Generate transcript from recorded audio
-        transcript = transcribe_file(recorded_file, transcript_file)
+        transcript = transcribe_file_json(recorded_file, transcript_file)
 
         return {
             "audio_file": recorded_file,
