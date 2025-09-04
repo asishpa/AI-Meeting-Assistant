@@ -97,6 +97,8 @@ def move_chrome_to_sink(sink_name="meet_sink", retries=15, delay=2):
     except Exception as e:
         logger.error(f"❌ Failed to move Chrome stream: {e}")
         return False
+
+
 def scrape_captions_json(driver, output_file="captions.json", stop_event=None, interval=2):
     """
     Continuously scrape live captions from Google Meet and save them in JSON format.
@@ -147,26 +149,29 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
 
         time.sleep(interval)
 
+
 def join_and_record_meeting(
     request: MeetRequest,
     record_seconds: int = 60,
     output_file: str = "meeting_audio.wav",
-    captions_file: str = "captions.txt"
+    captions_file: str = "captions.json"
 ):
     """
-    Join Google Meet as guest, disable mic/cam, and record audio.
+    Join Google Meet as guest, disable mic/cam, record audio and captions.
     """
     record_seconds = int(record_seconds)
     logger.info(f"Launching Chrome to join meeting: {request.meet_url}")
 
     driver = setup_chrome()
     ffmpeg_proc = None
+    caption_thread = None
+    stop_scraping = threading.Event()
 
     try:
         driver.get(request.meet_url)
         time.sleep(5)
 
-        # --- Disable mic ---
+        # Disable mic
         try:
             mic_button = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.XPATH, "//div[@role='button'][@aria-label[contains(., 'microphone')]]"))
@@ -177,7 +182,7 @@ def join_and_record_meeting(
         except Exception:
             logger.warning("⚠️ Could not find mic button")
 
-        # --- Disable cam ---
+        # Disable cam
         try:
             cam_button = driver.find_element(By.XPATH, "//div[@role='button'][@aria-label[contains(., 'camera')]]")
             if cam_button.get_attribute("aria_pressed") != "true":
@@ -186,7 +191,7 @@ def join_and_record_meeting(
         except Exception:
             logger.warning("⚠️ Could not find camera button")
 
-        # --- Enter name ---
+        # Enter name
         try:
             name_input = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.XPATH, "//input[@aria-label='Your name']"))
@@ -198,7 +203,7 @@ def join_and_record_meeting(
         except Exception as e:
             logger.warning(f"⚠️ Could not enter name: {e}")
 
-        # --- Click Ask to Join or Join Now ---
+        # Click Ask to Join / Join now
         try:
             ask_to_join_button = WebDriverWait(driver, 15).until(
                 EC.element_to_be_clickable((By.XPATH, "//span[text()='Ask to join']/ancestor::button"))
@@ -215,7 +220,7 @@ def join_and_record_meeting(
             except Exception:
                 logger.warning("⚠️ Could not find join button")
 
-        # --- Wait until inside meeting ---
+        # Wait until inside meeting
         try:
             WebDriverWait(driver, 30).until(
                 lambda driver: (
@@ -234,7 +239,8 @@ def join_and_record_meeting(
         except Exception as e:
             logger.error(f"❌ Failed to join meeting: {e}")
             raise
-        # --- Turn on captions (AFTER join) ---
+
+        # Turn on captions
         try:
             captions_button = WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.XPATH, "//button[contains(@aria-label, 'captions')]"))
@@ -247,28 +253,27 @@ def join_and_record_meeting(
         except Exception:
             logger.warning("⚠️ Could not enable captions")
 
-        # --- Move Chrome audio to virtual sink ---
+        # Move Chrome audio to virtual sink
         move_chrome_to_sink("meet_sink")
-        # --- Start captions scraping in background ---
-        stop_scraping = threading.Event()
+
+        # Start captions scraping thread
         caption_thread = threading.Thread(
-            target=scrape_captions, args=(driver, captions_file, stop_scraping), daemon=True
+            target=scrape_captions_json,
+            args=(driver, captions_file, stop_scraping),
+            daemon=True
         )
         caption_thread.start()
         logger.info("📝 Started captions scraping")
 
-        # --- Start recording ---
+        # Start FFmpeg
         ffmpeg_proc = start_ffmpeg(output_file)
         logger.info(f"🎤 Recording meeting audio for {record_seconds} seconds...")
-        logger.info(f"🎤 Recording meeting audio (max {record_seconds} sec, stop if meeting ends)")
 
         start_time = time.time()
-        max_wait = min(record_seconds, 300)  # safeguard: never more than 5 mins
-        
         while True:
             elapsed = time.time() - start_time
 
-            # 1. Check if meeting ended (Leave call button gone)
+            # Meeting ended?
             try:
                 leave_button = driver.find_element(By.XPATH, "//button[@aria-label='Leave call']")
                 if not leave_button.is_displayed():
@@ -278,15 +283,17 @@ def join_and_record_meeting(
                 logger.info("📴 Leave call button not found — meeting likely ended")
                 break
 
-            # 2. Timeout safeguard
-            if elapsed > max_wait:
-                logger.info("⏳ Max wait reached — stopping recording")
+            # Timeout
+            if elapsed > record_seconds:
+                logger.info("⏳ Max recording time reached — stopping")
                 break
-            time.sleep(record_seconds)
+
+            time.sleep(2)
 
     finally:
         stop_scraping.set()
-        caption_thread.join(timeout=5)
+        if caption_thread:
+            caption_thread.join(timeout=5)
         driver.quit()
         logger.info("🔚 Browser closed")
 
