@@ -117,6 +117,7 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
     - Only finalizes text when it stabilizes.
     - Avoids repeated text if a speaker continues speaking later.
     - Saves only new appended text.
+    - Ignores captions with empty speaker.
     """
     finalized_captions = []
     active_captions = {}         # Current text per speaker
@@ -134,7 +135,11 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
                 try:
                     speaker = block.find_element(By.CSS_SELECTOR, ".NWpY1d").text.strip()
                 except:
-                    speaker = "Unknown"
+                    speaker = ""
+
+                # Skip empty speaker blocks
+                if not speaker:
+                    continue
 
                 try:
                     text = block.find_element(By.CSS_SELECTOR, ".VbkSUe").text.strip()
@@ -183,6 +188,7 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
             pass
 
         time.sleep(interval)
+
 
 
 
