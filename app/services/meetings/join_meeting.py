@@ -108,7 +108,7 @@ def format_timestamp(seconds: float) -> str:
     else:
         return f"{mins:02d}:{secs:02d}"
 
-def scrape_captions_json(driver, output_file="captions.json", stop_event=None, interval=1.5, stable_time=1.5):
+def scrape_captions_json(driver, output_file="captions.json", stop_event=None, interval=1.5, stable_time=1.5,start_time=None):
     """
     Robust Google Meet captions scraper.
 
@@ -122,7 +122,8 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
     finalized_captions = []
     active_captions = {}         # Current text per speaker
     last_finalized_text = {}     # Last finalized text per speaker
-    start_time = time.time()     # Relative timestamp base
+    if start_time is None:
+        start_time = time.time()  # fallback   # Relative timestamp base
 
     while not (stop_event and stop_event.is_set()):
         try:
@@ -188,9 +189,6 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
             pass
 
         time.sleep(interval)
-
-
-
 
 
 def join_and_record_meeting(
@@ -299,10 +297,11 @@ def join_and_record_meeting(
         # Move Chrome audio to virtual sink
         move_chrome_to_sink("meet_sink")
 
+        start_time = time.time() 
         # Start captions scraping thread
         caption_thread = threading.Thread(
             target=scrape_captions_json,
-            args=(driver, captions_file, stop_scraping),
+            args=(driver, captions_file, stop_scraping, 1.5, 1.5, start_time),
             daemon=True
         )
         caption_thread.start()
