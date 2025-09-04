@@ -108,25 +108,31 @@ def format_timestamp(seconds: float) -> str:
     else:
         return f"{mins:02d}:{secs:02d}"
 
-def scrape_captions_json(driver, output_file="captions.json", stop_event=None, interval=1.5):
+def scrape_captions_json(driver, output_file="captions.json", stop_event=None, interval=1.5, stable_time=1.5):
     """
-    Scrape Google Meet captions and save only finalized lines with relative timestamps.
+    Robust Google Meet captions scraper.
+
+    Features:
+    - Handles multiple speakers.
+    - Only finalizes text when it stabilizes.
+    - Avoids repeated text if a speaker continues speaking later.
+    - Saves only new appended text.
     """
     finalized_captions = []
-    active_captions = {}
-    start_time = time.time()   # relative timing base
+    active_captions = {}         # Current text per speaker
+    last_finalized_text = {}     # Last finalized text per speaker
+    start_time = time.time()     # Relative timestamp base
 
     while not (stop_event and stop_event.is_set()):
         try:
             container = driver.find_element(By.XPATH, "//div[@role='region' and @aria-label='Captions']")
             blocks = container.find_elements(By.XPATH, ".//div[contains(@class,'nMcdL')]")
-
             current_time = time.time()
             updated = False
 
             for block in blocks:
                 try:
-                    speaker = block.find_element(By.CSS_SELECTOR, ".NWpY1d").text
+                    speaker = block.find_element(By.CSS_SELECTOR, ".NWpY1d").text.strip()
                 except:
                     speaker = "Unknown"
 
@@ -134,27 +140,41 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
                     text = block.find_element(By.CSS_SELECTOR, ".VbkSUe").text.strip()
                 except:
                     text = ""
-
                 if not text:
                     continue
 
+                # Initialize if new speaker
                 if speaker not in active_captions:
-                    active_captions[speaker] = {"text": text, "last_seen": current_time}
+                    active_captions[speaker] = {"text": text, "last_seen": current_time, "finalized": False}
                 else:
+                    # Text changed → reset timer
                     if active_captions[speaker]["text"] != text:
                         active_captions[speaker]["text"] = text
                         active_captions[speaker]["last_seen"] = current_time
+                        active_captions[speaker]["finalized"] = False
                     else:
-                        if current_time - active_captions[speaker]["last_seen"] > 2:  # stable → finalize
-                            elapsed = current_time - start_time
-                            finalized_captions.append({
-                                "speaker": speaker,
-                                "text": active_captions[speaker]["text"],
-                                "timestamp": format_timestamp(elapsed)
-                            })
-                            updated = True
-                            del active_captions[speaker]
+                        # Text stable → finalize if enough time passed
+                        if not active_captions[speaker]["finalized"] and current_time - active_captions[speaker]["last_seen"] > stable_time:
+                            prev_text = last_finalized_text.get(speaker, "")
+                            new_text = text
 
+                            # Remove repeated prefix
+                            if prev_text and new_text.startswith(prev_text):
+                                new_text = new_text[len(prev_text):].lstrip(". ").strip()
+
+                            if new_text:  # Only finalize non-empty new text
+                                elapsed = current_time - start_time
+                                finalized_captions.append({
+                                    "speaker": speaker,
+                                    "text": new_text,
+                                    "timestamp": format_timestamp(elapsed)
+                                })
+                                last_finalized_text[speaker] = text
+                                updated = True
+
+                            active_captions[speaker]["finalized"] = True
+
+            # Write to JSON only if updated
             if updated:
                 with open(output_file, "w", encoding="utf-8") as f:
                     json.dump(finalized_captions, f, indent=2)
@@ -163,6 +183,7 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
             pass
 
         time.sleep(interval)
+
 
 
 
