@@ -10,6 +10,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from app.schemas.meet import MeetRequest
 import threading
+import json
+
 
 logger = logging.getLogger(__name__)
 
@@ -95,34 +97,55 @@ def move_chrome_to_sink(sink_name="meet_sink", retries=15, delay=2):
     except Exception as e:
         logger.error(f"❌ Failed to move Chrome stream: {e}")
         return False
-def scrape_captions(driver, output_file="captions.txt", stop_event=None, interval=2):
+def scrape_captions_json(driver, output_file="captions.json", stop_event=None, interval=2):
     """
-    Continuously scrape live captions from Google Meet and save to a file.
-    Stops when stop_event is set.
+    Continuously scrape live captions from Google Meet and save them in JSON format.
+    Only final versions of captions per speaker are saved, with timestamps.
     """
-    seen = set()
-    with open(output_file, "w", encoding="utf-8") as f:
-        while not (stop_event and stop_event.is_set()):
-            try:
-                container = driver.find_element(By.XPATH, "//div[@role='region' and @aria-label='Captions']")
-                blocks = container.find_elements(By.XPATH, ".//div[contains(@class,'nMcdL')]")
-                for block in blocks:
-                    try:
-                        speaker = block.find_element(By.CSS_SELECTOR, ".NWpY1d").text
-                    except:
-                        speaker = "Unknown"
-                    try:
-                        text = block.find_element(By.CSS_SELECTOR, ".VbkSUe").text
-                    except:
-                        text = ""
-                    entry = f"{speaker}: {text}"
-                    if entry not in seen and text.strip():
-                        seen.add(entry)
-                        f.write(entry + "\n")
-                        f.flush()
-            except:
-                pass
-            time.sleep(interval)
+    captions = {}  # Store captions per speaker with timestamps
+
+    while not (stop_event and stop_event.is_set()):
+        try:
+            container = driver.find_element(By.XPATH, "//div[@role='region' and @aria-label='Captions']")
+            blocks = container.find_elements(By.XPATH, ".//div[contains(@class,'nMcdL')]")
+
+            current_time = time.time()
+            updated = False
+
+            for block in blocks:
+                try:
+                    speaker = block.find_element(By.CSS_SELECTOR, ".NWpY1d").text
+                except:
+                    speaker = "Unknown"
+                try:
+                    text = block.find_element(By.CSS_SELECTOR, ".VbkSUe").text.strip()
+                except:
+                    text = ""
+
+                if speaker and text:
+                    if speaker not in captions:
+                        # New caption
+                        captions[speaker] = {
+                            "text": text,
+                            "start_time": current_time,
+                            "end_time": current_time
+                        }
+                        updated = True
+                    elif captions[speaker]["text"] != text:
+                        # Caption updated
+                        captions[speaker]["text"] = text
+                        captions[speaker]["end_time"] = current_time
+                        updated = True
+
+            # Save JSON if anything changed
+            if updated:
+                with open(output_file, "w", encoding="utf-8") as f:
+                    json.dump(captions, f, indent=2)
+
+        except:
+            pass
+
+        time.sleep(interval)
 
 def join_and_record_meeting(
     request: MeetRequest,
