@@ -97,14 +97,24 @@ def move_chrome_to_sink(sink_name="meet_sink", retries=15, delay=2):
     except Exception as e:
         logger.error(f"❌ Failed to move Chrome stream: {e}")
         return False
+    
+def format_timestamp(seconds: float) -> str:
+    """Convert seconds to HH:MM:SS string."""
+    hrs = int(seconds // 3600)
+    mins = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    if hrs > 0:
+        return f"{hrs:02d}:{mins:02d}:{secs:02d}"
+    else:
+        return f"{mins:02d}:{secs:02d}"
 
-
-def scrape_captions_json(driver, output_file="captions.json", stop_event=None, interval=2):
+def scrape_captions_json(driver, output_file="captions.json", stop_event=None, interval=1.5):
     """
-    Continuously scrape live captions from Google Meet and save them in JSON format.
-    Only final versions of captions per speaker are saved, with timestamps.
+    Scrape Google Meet captions and save only finalized lines with relative timestamps.
     """
-    captions = {}  # Store captions per speaker with timestamps
+    finalized_captions = []
+    active_captions = {}
+    start_time = time.time()   # relative timing base
 
     while not (stop_event and stop_event.is_set()):
         try:
@@ -119,35 +129,41 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
                     speaker = block.find_element(By.CSS_SELECTOR, ".NWpY1d").text
                 except:
                     speaker = "Unknown"
+
                 try:
                     text = block.find_element(By.CSS_SELECTOR, ".VbkSUe").text.strip()
                 except:
                     text = ""
 
-                if speaker and text:
-                    if speaker not in captions:
-                        # New caption
-                        captions[speaker] = {
-                            "text": text,
-                            "start_time": current_time,
-                            "end_time": current_time
-                        }
-                        updated = True
-                    elif captions[speaker]["text"] != text:
-                        # Caption updated
-                        captions[speaker]["text"] = text
-                        captions[speaker]["end_time"] = current_time
-                        updated = True
+                if not text:
+                    continue
 
-            # Save JSON if anything changed
+                if speaker not in active_captions:
+                    active_captions[speaker] = {"text": text, "last_seen": current_time}
+                else:
+                    if active_captions[speaker]["text"] != text:
+                        active_captions[speaker]["text"] = text
+                        active_captions[speaker]["last_seen"] = current_time
+                    else:
+                        if current_time - active_captions[speaker]["last_seen"] > 2:  # stable → finalize
+                            elapsed = current_time - start_time
+                            finalized_captions.append({
+                                "speaker": speaker,
+                                "text": active_captions[speaker]["text"],
+                                "timestamp": format_timestamp(elapsed)
+                            })
+                            updated = True
+                            del active_captions[speaker]
+
             if updated:
                 with open(output_file, "w", encoding="utf-8") as f:
-                    json.dump(captions, f, indent=2)
+                    json.dump(finalized_captions, f, indent=2)
 
-        except:
+        except Exception:
             pass
 
         time.sleep(interval)
+
 
 
 def join_and_record_meeting(
