@@ -108,7 +108,7 @@ def format_timestamp(seconds: float) -> str:
     else:
         return f"{mins:02d}:{secs:02d}"
 
-def scrape_captions_json_continuous(driver, output_file="captions.json", stop_event=None, interval=0.5, meeting_start_time=None):
+def scrape_captions_json(driver, output_file="captions.json", stop_event=None, interval=0.5, meeting_start_time=None):
     """
     Continuous caption scraper:
     - Writes captions immediately on every poll (no stabilization delay).
