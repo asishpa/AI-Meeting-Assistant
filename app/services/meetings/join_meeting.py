@@ -280,7 +280,7 @@ def join_and_record_meeting(
         # Start captions scraping thread
         caption_thread = threading.Thread(
             target=scrape_captions_json,
-            args=(driver, captions_file, stop_scraping, 1.5, 1.5, start_time),
+            args=(driver, captions_file, stop_scraping, 0.5, start_time),
             daemon=True
         )
         caption_thread.start()
