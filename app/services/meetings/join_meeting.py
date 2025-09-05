@@ -108,7 +108,7 @@ def format_timestamp(seconds: float) -> str:
     else:
         return f"{mins:02d}:{secs:02d}"
 
-def scrape_captions_json(driver, output_file="captions.json", stop_event=None, interval=1.5, stable_time=1.5,start_time=None):
+def scrape_captions_json(driver, output_file="captions.json", stop_event=None, interval=1.5, stable_time=1.5, start_time=None):
     """
     Robust Google Meet captions scraper.
 
@@ -118,6 +118,7 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
     - Avoids repeated text if a speaker continues speaking later.
     - Saves only new appended text.
     - Ignores captions with empty speaker.
+    - Merges consecutive blocks from the same speaker.
     """
     finalized_captions = []
     active_captions = {}         # Current text per speaker
@@ -131,7 +132,12 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
             blocks = container.find_elements(By.XPATH, ".//div[contains(@class,'nMcdL')]")
             current_time = time.time()
             updated = False
-
+            
+            # Process blocks to merge consecutive same-speaker blocks
+            merged_blocks = []
+            current_speaker = None
+            current_text = ""
+            
             for block in blocks:
                 try:
                     speaker = block.find_element(By.CSS_SELECTOR, ".NWpY1d").text.strip()
@@ -148,6 +154,34 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
                     text = ""
                 if not text:
                     continue
+                
+                # Merge consecutive blocks from same speaker
+                if speaker == current_speaker:
+                    # Same speaker - merge text
+                    current_text += " " + text
+                else:
+                    # Different speaker - save previous merged block if exists
+                    if current_speaker:
+                        merged_blocks.append({
+                            "speaker": current_speaker,
+                            "text": current_text.strip()
+                        })
+                    
+                    # Start new merged block
+                    current_speaker = speaker
+                    current_text = text
+            
+            # Don't forget the last merged block
+            if current_speaker:
+                merged_blocks.append({
+                    "speaker": current_speaker,
+                    "text": current_text.strip()
+                })
+
+            # Process merged blocks
+            for merged_block in merged_blocks:
+                speaker = merged_block["speaker"]
+                text = merged_block["text"]
 
                 # Initialize if new speaker
                 if speaker not in active_captions:
