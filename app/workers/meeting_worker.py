@@ -1,5 +1,6 @@
 from celery import Celery
 from app.services.meetings.join_meeting import join_and_record_meeting, process_meeting_transcript
+from app.utils.transcript import transcribe_file_json
 from app.schemas.meet import MeetRequest
 import asyncio
 
@@ -19,6 +20,7 @@ def record_meeting_task(request_data: dict):
 
         audio_file = "meeting_audio.wav"
         captions_file = "captions.json"
+        transcript_file = "meeting_transcript.json"
         output_dir = "."  # where merged transcript + summary will be saved
 
         # 1️⃣ Join meeting, record audio + captions
@@ -28,6 +30,7 @@ def record_meeting_task(request_data: dict):
             output_file=audio_file,
             captions_file=captions_file
         )
+        transcript = transcribe_file_json(recorded_file, transcript_file)
 
         # 2️⃣ Process the meeting: transcribe, merge, generate summary
         results = process_meeting_transcript(

@@ -573,7 +573,7 @@ def process_meeting_transcript(audio_file: str, captions_file: str, output_dir: 
     import os
     
     # File paths
-    transcript_file = os.path.join(output_dir, "transcript.json")
+    transcript_file = os.path.join(output_dir, "meeting_transcript.json")
     merged_file = os.path.join(output_dir, "merged_transcript.json")
     summary_file = os.path.join(output_dir, "transcript_summary.json")
     
