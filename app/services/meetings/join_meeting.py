@@ -117,6 +117,7 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
     finalized_captions = []
     active_captions = {}         # Current text per speaker
     last_finalized_text = {}     # Last finalized text per speaker
+    next_id = 1 
     if meeting_start_time is None:
         meeting_start_time = time.time()  # relative timestamp base
 
@@ -178,6 +179,7 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
                                     # Keep original start time unchanged
                                 else:
                                     finalized_captions.append({
+                                        "id": next_id,
                                         "speaker": speaker,
                                         "text": new_text,
                                         "timestamp_start": format_timestamp(elapsed_first_seen),
