@@ -108,25 +108,23 @@ def format_timestamp(seconds: float) -> str:
     else:
         return f"{mins:02d}:{secs:02d}"
 
-def scrape_captions_json(driver, output_file="captions.json", stop_event=None, interval=1.5, stable_time=1.5, meeting_start_time=None):
+def scrape_captions_json_continuous(driver, output_file="captions.json", stop_event=None, interval=0.5, meeting_start_time=None):
     """
-    Robust Google Meet captions scraper with:
-    - Both initial appearance and stabilized timestamps.
-    - Consecutive blocks by the same speaker merged.
+    Continuous caption scraper:
+    - Writes captions immediately on every poll (no stabilization delay).
+    - Each new chunk gets a fresh timestamp.
     """
-    finalized_captions = []
-    active_captions = {}         # Current text per speaker
-    last_finalized_text = {}     # Last finalized text per speaker
-    next_id = 1 
+    captions = []
+    next_id = 1
+
     if meeting_start_time is None:
-        meeting_start_time = time.time()  # relative timestamp base
+        meeting_start_time = time.time()
 
     while not (stop_event and stop_event.is_set()):
         try:
             container = driver.find_element(By.XPATH, "//div[@role='region' and @aria-label='Captions']")
             blocks = container.find_elements(By.XPATH, ".//div[contains(@class,'nMcdL')]")
             current_time = time.time()
-            updated = False
 
             for block in blocks:
                 try:
@@ -143,62 +141,32 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
                 if not text:
                     continue
 
-                # Initialize if new speaker/text
-                if speaker not in active_captions:
-                    active_captions[speaker] = {
-                        "text": text,
-                        "first_seen": current_time,
-                        "last_seen": current_time,
-                        "finalized": False
-                    }
+                elapsed_time = current_time - meeting_start_time
+
+                # If same speaker continues, merge text
+                if captions and captions[-1]["speaker"] == speaker:
+                    if text not in captions[-1]["text"]:
+                        captions[-1]["text"] += " " + text
+                        captions[-1]["timestamp_end"] = format_timestamp(elapsed_time)
                 else:
-                    # Text changed → reset timer
-                    if active_captions[speaker]["text"] != text:
-                        active_captions[speaker]["text"] = text
-                        active_captions[speaker]["first_seen"] = current_time
-                        active_captions[speaker]["last_seen"] = current_time
-                        active_captions[speaker]["finalized"] = False
-                    else:
-                        # Text stable → finalize if enough time passed
-                        if not active_captions[speaker]["finalized"] and current_time - active_captions[speaker]["last_seen"] > stable_time:
-                            prev_text = last_finalized_text.get(speaker, "")
-                            new_text = text
+                    captions.append({
+                        "id": next_id,
+                        "speaker": speaker,
+                        "text": text,
+                        "timestamp_start": format_timestamp(elapsed_time),
+                        "timestamp_end": format_timestamp(elapsed_time)
+                    })
+                    next_id += 1
 
-                            # Remove repeated prefix
-                            if prev_text and new_text.startswith(prev_text):
-                                new_text = new_text[len(prev_text):].lstrip(". ").strip()
-
-                            if new_text:
-                                elapsed_first_seen = active_captions[speaker]["first_seen"] - meeting_start_time
-                                elapsed_finalized = current_time - meeting_start_time
-
-                                # Merge with last entry if same speaker
-                                if finalized_captions and finalized_captions[-1]["speaker"] == speaker:
-                                    finalized_captions[-1]["text"] += " " + new_text
-                                    finalized_captions[-1]["timestamp_finalized"] = format_timestamp(elapsed_finalized)
-                                    # Keep original start time unchanged
-                                else:
-                                    finalized_captions.append({
-                                        "id": next_id,
-                                        "speaker": speaker,
-                                        "text": new_text,
-                                        "timestamp_start": format_timestamp(elapsed_first_seen),
-                                        "timestamp_finalized": format_timestamp(elapsed_finalized)
-                                    })
-
-                                last_finalized_text[speaker] = text
-                                updated = True
-
-                            active_captions[speaker]["finalized"] = True
-
-            if updated:
-                with open(output_file, "w", encoding="utf-8") as f:
-                    json.dump(finalized_captions, f, indent=2)
+            # Save continuously
+            with open(output_file, "w", encoding="utf-8") as f:
+                json.dump(captions, f, indent=2)
 
         except Exception:
             pass
 
         time.sleep(interval)
+
 
 
 
