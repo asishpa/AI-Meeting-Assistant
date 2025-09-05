@@ -11,6 +11,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from app.schemas.meet import MeetRequest
 import threading
 import json
+from typing import Dict, List, Any
+from datetime import datetime
 
 
 logger = logging.getLogger(__name__)
@@ -382,3 +384,228 @@ def join_and_record_meeting(
                 logger.warning(f"⚠️ Failed to stop FFmpeg: {e}")
 
     return output_file, captions_file
+def parse_timestamp_to_seconds(timestamp: str) -> float:
+    """Convert HH:MM:SS or MM:SS timestamp to seconds."""
+    parts = timestamp.split(':')
+    if len(parts) == 3:  # HH:MM:SS
+        hours, minutes, seconds = map(int, parts)
+        return hours * 3600 + minutes * 60 + seconds
+    elif len(parts) == 2:  # MM:SS
+        minutes, seconds = map(int, parts)
+        return minutes * 60 + seconds
+    else:
+        return 0
+
+def seconds_to_timestamp(seconds: float) -> str:
+    """Convert seconds to HH:MM:SS format."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    if hours > 0:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    else:
+        return f"{minutes:02d}:{secs:02d}"
+
+def build_speaker_mapping(captions_file: str) -> Dict[str, str]:
+    """
+    Build a mapping from speaker labels (A, B, C, etc.) to actual names from captions.
+    Uses the order of first appearance to assign speaker labels.
+    """
+    try:
+        with open(captions_file, 'r', encoding='utf-8') as f:
+            captions = json.load(f)
+        
+        # Track unique speakers in order of appearance
+        speaker_order = []
+        seen_speakers = set()
+        
+        for caption in captions:
+            speaker = caption.get('speaker', '').strip()
+            if speaker and speaker not in seen_speakers:
+                speaker_order.append(speaker)
+                seen_speakers.add(speaker)
+        
+        # Create mapping: A -> first speaker, B -> second speaker, etc.
+        speaker_mapping = {}
+        for i, actual_name in enumerate(speaker_order):
+            label = chr(ord('A') + i)  # A, B, C, D, etc.
+            speaker_mapping[label] = actual_name
+        
+        logger.info(f"📝 Speaker mapping created: {speaker_mapping}")
+        return speaker_mapping
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to build speaker mapping: {e}")
+        return {}
+
+def merge_transcript_with_captions(transcript_file: str, captions_file: str, output_file: str) -> List[Dict[str, Any]]:
+    """
+    Merge AssemblyAI transcript with captions data:
+    1. Map speaker labels (A, B) to actual names from captions
+    2. Create merged transcript with IDs
+    3. Save to separate file
+    """
+    try:
+        # Load transcript and captions
+        with open(transcript_file, 'r', encoding='utf-8') as f:
+            transcript = json.load(f)
+            
+        # Build speaker mapping
+        speaker_mapping = build_speaker_mapping(captions_file)
+        
+        if not speaker_mapping:
+            logger.warning("⚠️ No speaker mapping found, using original labels")
+            
+        # Create merged transcript with speaker names and IDs
+        merged_transcript = []
+        
+        for i, segment in enumerate(transcript, 1):
+            # Get speaker label and map to actual name
+            speaker_label = segment.get('speaker', 'Unknown')
+            actual_speaker = speaker_mapping.get(speaker_label, speaker_label)
+            
+            merged_segment = {
+                "id": i,
+                "start_time": segment.get('start_time', '00:00'),
+                "end_time": segment.get('end_time', '00:00'),
+                "speaker_label": speaker_label,
+                "speaker_name": actual_speaker,
+                "text": segment.get('text', '').strip(),
+                "duration_seconds": parse_timestamp_to_seconds(segment.get('end_time', '00:00')) - 
+                                 parse_timestamp_to_seconds(segment.get('start_time', '00:00'))
+            }
+            
+            merged_transcript.append(merged_segment)
+        
+        # Add metadata
+        final_output = {
+            "metadata": {
+                "total_segments": len(merged_transcript),
+                "speakers_detected": len(speaker_mapping),
+                "speaker_mapping": speaker_mapping,
+                "generated_at": datetime.now().isoformat(),
+                "source_files": {
+                    "transcript": transcript_file,
+                    "captions": captions_file
+                }
+            },
+            "transcript": merged_transcript
+        }
+        
+        # Save merged transcript
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(final_output, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"✅ Merged transcript saved to: {output_file}")
+        logger.info(f"📊 Total segments: {len(merged_transcript)}")
+        logger.info(f"🎤 Speakers mapped: {list(speaker_mapping.values())}")
+        
+        return merged_transcript
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to merge transcript with captions: {e}")
+        return []
+
+def generate_summary_stats(merged_file: str) -> Dict[str, Any]:
+    """Generate summary statistics from the merged transcript."""
+    try:
+        with open(merged_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        transcript = data.get('transcript', [])
+        speaker_mapping = data.get('metadata', {}).get('speaker_mapping', {})
+        
+        # Calculate speaker statistics
+        speaker_stats = {}
+        total_duration = 0
+        
+        for segment in transcript:
+            speaker = segment.get('speaker_name', 'Unknown')
+            duration = segment.get('duration_seconds', 0)
+            text_length = len(segment.get('text', ''))
+            
+            if speaker not in speaker_stats:
+                speaker_stats[speaker] = {
+                    'segments': 0,
+                    'total_duration': 0,
+                    'total_words': 0,
+                    'total_characters': 0
+                }
+            
+            speaker_stats[speaker]['segments'] += 1
+            speaker_stats[speaker]['total_duration'] += duration
+            speaker_stats[speaker]['total_words'] += len(segment.get('text', '').split())
+            speaker_stats[speaker]['total_characters'] += text_length
+            total_duration += duration
+        
+        # Calculate percentages
+        for speaker in speaker_stats:
+            speaker_stats[speaker]['percentage_of_time'] = round(
+                (speaker_stats[speaker]['total_duration'] / total_duration * 100) if total_duration > 0 else 0, 2
+            )
+            speaker_stats[speaker]['avg_segment_duration'] = round(
+                speaker_stats[speaker]['total_duration'] / speaker_stats[speaker]['segments'], 2
+            ) if speaker_stats[speaker]['segments'] > 0 else 0
+        
+        summary = {
+            "total_duration_seconds": round(total_duration, 2),
+            "total_duration_formatted": seconds_to_timestamp(total_duration),
+            "total_segments": len(transcript),
+            "unique_speakers": len(speaker_stats),
+            "speaker_statistics": speaker_stats
+        }
+        
+        logger.info(f"📈 Summary statistics generated")
+        return summary
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to generate summary: {e}")
+        return {}
+
+# Example usage function
+def process_meeting_transcript(audio_file: str, captions_file: str, output_dir: str = "."):
+    """
+    Complete workflow to process meeting transcript:
+    1. Transcribe audio (assumes transcribe_file_json is available)
+    2. Merge with captions data
+    3. Generate summary statistics
+    """
+    import os
+    
+    # File paths
+    transcript_file = os.path.join(output_dir, "transcript.json")
+    merged_file = os.path.join(output_dir, "merged_transcript.json")
+    summary_file = os.path.join(output_dir, "transcript_summary.json")
+    
+    try:
+        # Step 1: Transcribe audio (assuming transcribe_file_json function exists)
+        logger.info("🎵 Starting audio transcription...")
+        #transcript_data = transcribe_file_json(audio_file, transcript_file)
+        
+        # Step 2: Merge transcript with captions
+        logger.info("🔗 Merging transcript with captions...")
+        merged_data = merge_transcript_with_captions(transcript_file, captions_file, merged_file)
+        
+        if merged_data:
+            # Step 3: Generate summary
+            logger.info("📊 Generating summary statistics...")
+            summary = generate_summary_stats(merged_file)
+            
+            if summary:
+                with open(summary_file, 'w', encoding='utf-8') as f:
+                    json.dump(summary, f, indent=2, ensure_ascii=False)
+                logger.info(f"✅ Summary saved to: {summary_file}")
+            
+            return {
+                "transcript_file": transcript_file,
+                "merged_file": merged_file,
+                "summary_file": summary_file,
+                "success": True
+            }
+        else:
+            logger.error("❌ Merge failed")
+            return {"success": False}
+            
+    except Exception as e:
+        logger.error(f"❌ Processing failed: {e}")
+        return {"success": False, "error": str(e)}
