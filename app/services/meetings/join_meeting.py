@@ -108,29 +108,37 @@ def format_timestamp(seconds: float) -> str:
     else:
         return f"{mins:02d}:{secs:02d}"
 
-def scrape_captions_json(driver, output_file="captions.json", stop_event=None, interval=0.5, meeting_start_time=None):
+def scrape_captions_json(driver, output_file="captions.json", stop_event=None, interval=1.5, stable_time=1.5,start_time=None):
     """
-    Continuous caption scraper:
-    - Writes captions immediately on every poll (no stabilization delay).
-    - Each new chunk gets a fresh timestamp.
-    """
-    captions = []
-    next_id = 1
+    Robust Google Meet captions scraper.
 
-    if meeting_start_time is None:
-        meeting_start_time = time.time()
+    Features:
+    - Handles multiple speakers.
+    - Only finalizes text when it stabilizes.
+    - Avoids repeated text if a speaker continues speaking later.
+    - Saves only new appended text.
+    - Ignores captions with empty speaker.
+    """
+    finalized_captions = []
+    active_captions = {}         # Current text per speaker
+    last_finalized_text = {}     # Last finalized text per speaker
+    if start_time is None:
+        start_time = time.time()  # fallback   # Relative timestamp base
 
     while not (stop_event and stop_event.is_set()):
         try:
             container = driver.find_element(By.XPATH, "//div[@role='region' and @aria-label='Captions']")
             blocks = container.find_elements(By.XPATH, ".//div[contains(@class,'nMcdL')]")
             current_time = time.time()
+            updated = False
 
             for block in blocks:
                 try:
                     speaker = block.find_element(By.CSS_SELECTOR, ".NWpY1d").text.strip()
                 except:
                     speaker = ""
+
+                # Skip empty speaker blocks
                 if not speaker:
                     continue
 
@@ -141,33 +149,46 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
                 if not text:
                     continue
 
-                elapsed_time = current_time - meeting_start_time
-
-                # If same speaker continues, merge text
-                if captions and captions[-1]["speaker"] == speaker:
-                    if text not in captions[-1]["text"]:
-                        captions[-1]["text"] += " " + text
-                        captions[-1]["timestamp_end"] = format_timestamp(elapsed_time)
+                # Initialize if new speaker
+                if speaker not in active_captions:
+                    active_captions[speaker] = {"text": text, "last_seen": current_time, "finalized": False}
                 else:
-                    captions.append({
-                        "id": next_id,
-                        "speaker": speaker,
-                        "text": text,
-                        "timestamp_start": format_timestamp(elapsed_time),
-                        "timestamp_end": format_timestamp(elapsed_time)
-                    })
-                    next_id += 1
+                    # Text changed → reset timer
+                    if active_captions[speaker]["text"] != text:
+                        active_captions[speaker]["text"] = text
+                        active_captions[speaker]["last_seen"] = current_time
+                        active_captions[speaker]["finalized"] = False
+                    else:
+                        # Text stable → finalize if enough time passed
+                        if not active_captions[speaker]["finalized"] and current_time - active_captions[speaker]["last_seen"] > stable_time:
+                            prev_text = last_finalized_text.get(speaker, "")
+                            new_text = text
 
-            # Save continuously
-            with open(output_file, "w", encoding="utf-8") as f:
-                json.dump(captions, f, indent=2)
+                            # Remove repeated prefix
+                            if prev_text and new_text.startswith(prev_text):
+                                new_text = new_text[len(prev_text):].lstrip(". ").strip()
+
+                            if new_text:  # Only finalize non-empty new text
+                                elapsed = current_time - start_time
+                                finalized_captions.append({
+                                    "speaker": speaker,
+                                    "text": new_text,
+                                    "timestamp": format_timestamp(elapsed)
+                                })
+                                last_finalized_text[speaker] = text
+                                updated = True
+
+                            active_captions[speaker]["finalized"] = True
+
+            # Write to JSON only if updated
+            if updated:
+                with open(output_file, "w", encoding="utf-8") as f:
+                    json.dump(finalized_captions, f, indent=2)
 
         except Exception:
             pass
 
         time.sleep(interval)
-
-
 
 
 def join_and_record_meeting(
@@ -280,7 +301,7 @@ def join_and_record_meeting(
         # Start captions scraping thread
         caption_thread = threading.Thread(
             target=scrape_captions_json,
-            args=(driver, captions_file, stop_scraping, 0.5, start_time),
+            args=(driver, captions_file, stop_scraping, 1.5, 1.5, start_time),
             daemon=True
         )
         caption_thread.start()
