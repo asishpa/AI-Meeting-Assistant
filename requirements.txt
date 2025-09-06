@@ -15,3 +15,5 @@ celery==5.5.3
 redis==6.4.0
 selenium>=4.16.0
 assemblyai
+speechrecognition==3.14.3
+pydub==0.25.1
