@@ -51,14 +51,16 @@ def speak_in_meeting(driver, text: str, delay_seconds: int = 10, sink_name="meet
 
             # 2. Generate TTS audio using ElevenLabs
             tts_file = "temp_speech.wav"
-            audio = client.text_to_speech.convert(
-                voice_id="Rachel",   # <-- change voice if you want
+            audio_stream = client.text_to_speech.convert(
+                voice_id="Rachel",
                 model_id="eleven_multilingual_v2",
                 output_format="wav",
                 text=text
             )
+
             with open(tts_file, "wb") as f:
-                f.write(audio)
+                for chunk in audio_stream:
+                    f.write(chunk)
             logger.info(f"🗣️ Generated TTS with ElevenLabs: {text}")
 
             # 3. Inject into virtual sink and WAIT until finished
