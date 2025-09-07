@@ -1,13 +1,17 @@
 import threading
-import pyttsx3
 import time
 import subprocess
 import logging
+import os
+from elevenlabs import ElevenLabs
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 logger = logging.getLogger(__name__)
+
+# Initialize ElevenLabs client
+client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 def toggle_mic(driver, unmute=True):
     """Unmute or mute mic (idempotent)."""
@@ -38,19 +42,24 @@ def toggle_mic(driver, unmute=True):
 
 def speak_in_meeting(driver, text: str, delay_seconds: int = 10, sink_name="meet_sink"):
     """
-    After `delay_seconds`, unmute mic, generate TTS, inject into sink, then mute after playback ends.
+    After `delay_seconds`, unmute mic, generate TTS with ElevenLabs, inject into sink, then mute after playback.
     """
     def task():
         try:
             # 1. Unmute microphone
             toggle_mic(driver, unmute=True)
 
-            # 2. Generate TTS audio
+            # 2. Generate TTS audio using ElevenLabs
             tts_file = "temp_speech.wav"
-            engine = pyttsx3.init()
-            engine.save_to_file(text, tts_file)
-            engine.runAndWait()
-            logger.info(f"🗣️ Generated TTS audio: {text}")
+            audio = client.text_to_speech.convert(
+                voice_id="Rachel",   # <-- change voice if you want
+                model_id="eleven_multilingual_v2",
+                output_format="wav",
+                text=text
+            )
+            with open(tts_file, "wb") as f:
+                f.write(audio)
+            logger.info(f"🗣️ Generated TTS with ElevenLabs: {text}")
 
             # 3. Inject into virtual sink and WAIT until finished
             subprocess.run(["paplay", "--device=" + sink_name, tts_file], check=True)
@@ -64,4 +73,3 @@ def speak_in_meeting(driver, text: str, delay_seconds: int = 10, sink_name="meet
 
     # Run in background after delay
     threading.Timer(delay_seconds, task).start()
-
