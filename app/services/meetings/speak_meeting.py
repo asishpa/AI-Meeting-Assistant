@@ -1,17 +1,14 @@
 import threading
+import pyttsx3
 import time
 import subprocess
 import logging
-import os
-from elevenlabs import ElevenLabs
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+from pydub import AudioSegment
 
 logger = logging.getLogger(__name__)
-
-# Initialize ElevenLabs client
-client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 def toggle_mic(driver, unmute=True):
     """Unmute or mute mic (idempotent)."""
@@ -42,36 +39,35 @@ def toggle_mic(driver, unmute=True):
 
 def speak_in_meeting(driver, text: str, delay_seconds: int = 10, sink_name="meet_sink"):
     """
-    After `delay_seconds`, unmute mic, generate TTS with ElevenLabs, inject into sink, then mute after playback.
+    After `delay_seconds`, unmute mic, generate TTS as MP3, inject into sink, then mute after playback ends.
     """
     def task():
         try:
             # 1. Unmute microphone
             toggle_mic(driver, unmute=True)
 
-            # 2. Generate TTS audio using ElevenLabs
-            tts_file = "temp_speech.wav"
-            audio_stream = client.text_to_speech.convert(
-                voice_id="Rachel",
-                model_id="eleven_multilingual_v2",
-                output_format="wav",
-                text=text
-            )
+            # 2. Generate TTS audio as WAV
+            tts_wav = "temp_speech.wav"
+            tts_mp3 = "temp_speech.mp3"
+            engine = pyttsx3.init()
+            engine.save_to_file(text, tts_wav)
+            engine.runAndWait()
+            logger.info(f"🗣️ Generated TTS WAV: {text}")
 
-            with open(tts_file, "wb") as f:
-                for chunk in audio_stream:
-                    f.write(chunk)
-            logger.info(f"🗣️ Generated TTS with ElevenLabs: {text}")
+            # 3. Convert WAV -> MP3
+            audio = AudioSegment.from_wav(tts_wav)
+            audio.export(tts_mp3, format="mp3")
+            logger.info("🎵 Converted WAV -> MP3")
 
-            # 3. Inject into virtual sink and WAIT until finished
-            subprocess.run(["paplay", "--device=" + sink_name, tts_file], check=True)
+            # 4. Play MP3 using paplay (or any player that supports MP3)
+            subprocess.run(["paplay", "--device=" + sink_name, tts_mp3], check=True)
             logger.info("🔊 Finished audio injection")
 
-            # 4. Mute mic AFTER playback fully done
+            # 5. Mute mic after playback
             toggle_mic(driver, unmute=False)
 
         except Exception as e:
             logger.error(f"❌ Failed to speak in meeting: {e}")
 
-    # Run in background after delay
     threading.Timer(delay_seconds, task).start()
+
