@@ -39,7 +39,7 @@ def toggle_mic(driver, unmute=True):
 
 def speak_in_meeting(driver, text: str, delay_seconds: int = 10, sink_name="meet_sink"):
     """
-    After `delay_seconds`, unmute mic, generate TTS as MP3, inject into sink, then mute after playback ends.
+    After `delay_seconds`, unmute mic, generate TTS as WAV, inject into sink, then mute after playback ends.
     """
     def task():
         try:
@@ -48,26 +48,21 @@ def speak_in_meeting(driver, text: str, delay_seconds: int = 10, sink_name="meet
 
             # 2. Generate TTS audio as WAV
             tts_wav = "temp_speech.wav"
-            tts_mp3 = "temp_speech.mp3"
             engine = pyttsx3.init()
             engine.save_to_file(text, tts_wav)
             engine.runAndWait()
             logger.info(f"🗣️ Generated TTS WAV: {text}")
 
-            # 3. Convert WAV -> MP3
-            audio = AudioSegment.from_wav(tts_wav)
-            audio.export(tts_mp3, format="mp3")
-            logger.info("🎵 Converted WAV -> MP3")
-
-            # 4. Play MP3 using paplay (or any player that supports MP3)
-            subprocess.run(["paplay", "--device=" + sink_name, tts_mp3], check=True)
+            # 3. Play WAV directly into virtual sink
+            subprocess.run(["paplay", "--device=" + sink_name, tts_wav], check=True)
             logger.info("🔊 Finished audio injection")
 
-            # 5. Mute mic after playback
+            # 4. Mute mic after playback
             toggle_mic(driver, unmute=False)
 
         except Exception as e:
             logger.error(f"❌ Failed to speak in meeting: {e}")
 
     threading.Timer(delay_seconds, task).start()
+
 
