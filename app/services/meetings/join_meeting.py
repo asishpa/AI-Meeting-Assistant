@@ -13,6 +13,7 @@ import threading
 import json
 from typing import Dict, List, Any
 from datetime import datetime
+from meetings import speak_in_meeting
 
 
 logger = logging.getLogger(__name__)
@@ -307,6 +308,7 @@ def join_and_record_meeting(
             )
             if driver.find_elements(By.XPATH, "//button[@aria-label='Leave call']"):
                 logger.info("✅ Successfully joined the meeting")
+                speak_in_meeting("Hello everyone, this is the meeting assistant. How are you all doing?", delay_seconds=60)
             else:
                 logger.info("⏳ Waiting for host approval")
                 WebDriverWait(driver, 60).until(
@@ -438,73 +440,39 @@ def build_speaker_mapping(captions_file: str) -> Dict[str, str]:
         logger.error(f"❌ Failed to build speaker mapping: {e}")
         return {}
 
-def merge_transcript_with_captions(transcript_file: str, captions_file: str, output_file: str) -> List[Dict[str, Any]]:
-    """
-    Merge AssemblyAI transcript with captions data:
-    1. Map speaker labels (A, B) to actual names from captions
-    2. Create merged transcript with IDs
-    3. Save to separate file
-    """
-    try:
-        # Load transcript and captions
-        with open(transcript_file, 'r', encoding='utf-8') as f:
-            transcript = json.load(f)
-            
-        # Build speaker mapping
-        speaker_mapping = build_speaker_mapping(captions_file)
-        
-        if not speaker_mapping:
-            logger.warning("⚠️ No speaker mapping found, using original labels")
-            
-        # Create merged transcript with speaker names and IDs
-        merged_transcript = []
-        
-        for i, segment in enumerate(transcript, 1):
-            # Get speaker label and map to actual name
-            speaker_label = segment.get('speaker', 'Unknown')
-            actual_speaker = speaker_mapping.get(speaker_label, speaker_label)
-            
-            merged_segment = {
-                "id": i,
-                "start_time": segment.get('start_time', '00:00'),
-                "end_time": segment.get('end_time', '00:00'),
-                "speaker_label": speaker_label,
-                "speaker_name": actual_speaker,
-                "text": segment.get('text', '').strip(),
-                "duration_seconds": parse_timestamp_to_seconds(segment.get('end_time', '00:00')) - 
-                                 parse_timestamp_to_seconds(segment.get('start_time', '00:00'))
-            }
-            
-            merged_transcript.append(merged_segment)
-        
-        # Add metadata
-        final_output = {
-            "metadata": {
-                "total_segments": len(merged_transcript),
-                "speakers_detected": len(speaker_mapping),
-                "speaker_mapping": speaker_mapping,
-                "generated_at": datetime.now().isoformat(),
-                "source_files": {
-                    "transcript": transcript_file,
-                    "captions": captions_file
-                }
-            },
-            "transcript": merged_transcript
+def merge_transcript_with_captions(transcript_file, captions_file, output_file):
+    with open(transcript_file, 'r', encoding='utf-8') as f:
+        transcript = json.load(f)
+    with open(captions_file, 'r', encoding='utf-8') as f:
+        captions = json.load(f)
+
+    merged_transcript = []
+    for i, (t, c) in enumerate(zip(transcript, captions), 1):
+        merged_segment = {
+            "id": i,
+            "start_time": t.get("start_time", "00:00"),
+            "end_time": t.get("end_time", "00:00"),
+            "speaker_label": t.get("speaker", "Unknown"),
+            "speaker_name": c.get("speaker", "Unknown"),
+            "text": t.get("text", "").strip(),
+            "duration_seconds": parse_timestamp_to_seconds(t.get("end_time", "00:00")) -
+                               parse_timestamp_to_seconds(t.get("start_time", "00:00"))
         }
-        
-        # Save merged transcript
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(final_output, f, indent=2, ensure_ascii=False)
-        
-        logger.info(f"✅ Merged transcript saved to: {output_file}")
-        logger.info(f"📊 Total segments: {len(merged_transcript)}")
-        logger.info(f"🎤 Speakers mapped: {list(speaker_mapping.values())}")
-        
-        return merged_transcript
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to merge transcript with captions: {e}")
-        return []
+        merged_transcript.append(merged_segment)
+
+    final_output = {
+        "metadata": {
+            "total_segments": len(merged_transcript),
+            "generated_at": datetime.now().isoformat(),
+            "source_files": {"transcript": transcript_file, "captions": captions_file}
+        },
+        "transcript": merged_transcript
+    }
+
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(final_output, f, indent=2, ensure_ascii=False)
+
+    return merged_transcript
 
 def generate_summary_stats(merged_file: str) -> Dict[str, Any]:
     """Generate summary statistics from the merged transcript."""
