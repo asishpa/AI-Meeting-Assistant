@@ -13,7 +13,7 @@ import threading
 import json
 from typing import Dict, List, Any
 from datetime import datetime
-from meetings.speak_meeting import speak_in_meeting
+from app.services.meetings.speak_meeting import speak_in_meeting
 
 
 logger = logging.getLogger(__name__)
