@@ -38,7 +38,7 @@ def toggle_mic(driver, unmute=True):
 
 def speak_in_meeting(driver, text: str, delay_seconds: int = 10, sink_name="meet_sink"):
     """
-    After `delay_seconds`, unmute mic, generate TTS, inject into sink, then mute again.
+    After `delay_seconds`, unmute mic, generate TTS, inject into sink, then mute after playback ends.
     """
     def task():
         try:
@@ -52,12 +52,11 @@ def speak_in_meeting(driver, text: str, delay_seconds: int = 10, sink_name="meet
             engine.runAndWait()
             logger.info(f"🗣️ Generated TTS audio: {text}")
 
-            # 3. Inject into virtual sink (so Meet hears it)
-            subprocess.call(["paplay", "--device=" + sink_name, tts_file])
-            logger.info("🔊 Audio injected into meeting")
+            # 3. Inject into virtual sink and WAIT until finished
+            subprocess.run(["paplay", "--device=" + sink_name, tts_file], check=True)
+            logger.info("🔊 Finished audio injection")
 
-            # 4. Mute mic again
-            time.sleep(1)  # short buffer
+            # 4. Mute mic AFTER playback fully done
             toggle_mic(driver, unmute=False)
 
         except Exception as e:
@@ -65,3 +64,4 @@ def speak_in_meeting(driver, text: str, delay_seconds: int = 10, sink_name="meet
 
     # Run in background after delay
     threading.Timer(delay_seconds, task).start()
+
