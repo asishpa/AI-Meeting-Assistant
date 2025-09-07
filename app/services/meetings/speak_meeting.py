@@ -9,48 +9,41 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 logger = logging.getLogger(__name__)
 
-def setup_virtual_sink(sink_name="meet_sink"):
-    """
-    Ensure virtual sink exists and set its monitor as the default mic.
-    """
+def toggle_mic(driver, unmute=True):
+    """Unmute or mute mic (idempotent)."""
     try:
-        # Check if sink exists
-        sinks = subprocess.check_output(["pactl", "list", "short", "sinks"]).decode()
-        if sink_name not in sinks:
-            subprocess.call([
-                "pactl", "load-module", "module-null-sink",
-                f"sink_name={sink_name}"
-            ])
-            logger.info(f"✅ Created virtual sink: {sink_name}")
+        mic_button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((
+                By.XPATH,
+                "//button[contains(@aria-label, 'microphone')]"
+            ))
+        )
+
+        is_muted = mic_button.get_attribute("data-is-muted") == "true"
+
+        if unmute and is_muted:
+            mic_button.click()
+            logger.info("🎙️ Mic unmuted")
+        elif not unmute and not is_muted:
+            mic_button.click()
+            logger.info("🔇 Mic muted")
         else:
-            logger.info(f"ℹ️ Virtual sink {sink_name} already exists")
+            logger.info("ℹ️ Mic already in desired state")
 
-        # Set monitor as default source (mic)
-        subprocess.call([
-            "pactl", "set-default-source", f"{sink_name}.monitor"
-        ])
-        logger.info(f"🎙️ Set default mic to {sink_name}.monitor")
-
+        return True
     except Exception as e:
-        logger.error(f"❌ Failed to set up virtual sink: {e}")
+        logger.error(f"❌ Could not toggle mic: {e}")
+        return False
 
 
 def speak_in_meeting(driver, text: str, delay_seconds: int = 10, sink_name="meet_sink"):
     """
-    After `delay_seconds`, unmute the mic, generate TTS, inject into sink, mute again.
+    After `delay_seconds`, unmute mic, generate TTS, inject into sink, then mute again.
     """
     def task():
         try:
-            # 0. Make sure sink is ready
-            setup_virtual_sink(sink_name)
-
             # 1. Unmute microphone
-            mic_button = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "//div[@role='button'][@aria-label[contains(., 'microphone')]]"))
-            )
-            if mic_button.get_attribute("aria_pressed") == "false":  # muted
-                mic_button.click()
-                logger.info("🎙️ Mic unmuted")
+            toggle_mic(driver, unmute=True)
 
             # 2. Generate TTS audio
             tts_file = "temp_speech.wav"
@@ -63,11 +56,9 @@ def speak_in_meeting(driver, text: str, delay_seconds: int = 10, sink_name="meet
             subprocess.call(["paplay", "--device=" + sink_name, tts_file])
             logger.info("🔊 Audio injected into meeting")
 
-            # 4. Mute again
-            time.sleep(1)
-            if mic_button.get_attribute("aria_pressed") == "true":
-                mic_button.click()
-                logger.info("🔇 Mic muted again")
+            # 4. Mute mic again
+            time.sleep(1)  # short buffer
+            toggle_mic(driver, unmute=False)
 
         except Exception as e:
             logger.error(f"❌ Failed to speak in meeting: {e}")
