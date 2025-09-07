@@ -308,7 +308,12 @@ def join_and_record_meeting(
             )
             if driver.find_elements(By.XPATH, "//button[@aria-label='Leave call']"):
                 logger.info("✅ Successfully joined the meeting")
-                speak_in_meeting("Hello everyone, this is the meeting assistant. How are you all doing?", delay_seconds=60)
+                speak_in_meeting(driver, 
+                    "Hello everyone, this is the meeting assistant. How are you all doing?", 
+                    delay_seconds=60, 
+                    sink_name="meet_sink"
+            )
+
             else:
                 logger.info("⏳ Waiting for host approval")
                 WebDriverWait(driver, 60).until(
