@@ -311,9 +311,7 @@ def join_and_record_meeting(
                 logger.info("✅ Successfully joined the meeting")
                 tts_audio_path = "bot_speech.wav"  # your pre-recorded TTS file
                 inject_audio_to_meet(driver, tts_audio_path)
-
                 
-
             else:
                 logger.info("⏳ Waiting for host approval")
                 WebDriverWait(driver, 60).until(
@@ -354,13 +352,13 @@ def join_and_record_meeting(
         ffmpeg_proc = start_ffmpeg(output_file)
         logger.info(f"🎤 Recording meeting audio for {record_seconds} seconds...")
         # --- Launch live audio injector after 30 seconds ---
-        if tts_generator:
-            def delayed_injection():
-                time.sleep(30)
-                logger.info("⏳ 30s elapsed — injecting live bot audio now")
-                inject_live_audio_to_meet(driver, tts_generator)
+        #if tts_generator:
+        #    def delayed_injection():
+        #        time.sleep(30)
+        #        logger.info("⏳ 30s elapsed — injecting live bot audio now")
+        #        inject_live_audio_to_meet(driver, tts_generator)
 
-            threading.Thread(target=delayed_injection, daemon=True).start()
+        #    threading.Thread(target=delayed_injection, daemon=True).start()
 
         start_time = time.time()
         while True:
