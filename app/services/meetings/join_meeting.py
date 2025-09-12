@@ -13,7 +13,7 @@ import threading
 import json
 from typing import Dict, List, Any
 from datetime import datetime
-from app.services.meetings.speak_meeting import speak_in_meeting
+from app.services.meetings.live_audio import inject_live_audio_to_meet
 
 
 logger = logging.getLogger(__name__)
@@ -308,11 +308,10 @@ def join_and_record_meeting(
             )
             if driver.find_elements(By.XPATH, "//button[@aria-label='Leave call']"):
                 logger.info("✅ Successfully joined the meeting")
-                speak_in_meeting(driver, 
-                    "Hello everyone, this is the meeting assistant. How are you all doing?", 
-                    delay_seconds=60, 
-                    sink_name="meet_sink"
-            )
+                tts_audio_path = "bot_speech.wav"  # your pre-recorded TTS file
+                inject_audio_to_meet(driver, tts_audio_path)
+
+                
 
             else:
                 logger.info("⏳ Waiting for host approval")
@@ -353,6 +352,14 @@ def join_and_record_meeting(
         # Start FFmpeg
         ffmpeg_proc = start_ffmpeg(output_file)
         logger.info(f"🎤 Recording meeting audio for {record_seconds} seconds...")
+        # --- Launch live audio injector after 30 seconds ---
+        if tts_generator:
+            def delayed_injection():
+                time.sleep(30)
+                logger.info("⏳ 30s elapsed — injecting live bot audio now")
+                inject_live_audio_to_meet(driver, tts_generator)
+
+            threading.Thread(target=delayed_injection, daemon=True).start()
 
         start_time = time.time()
         while True:
@@ -582,3 +589,67 @@ def process_meeting_transcript(audio_file: str, captions_file: str, output_dir: 
     except Exception as e:
         logger.error(f"❌ Processing failed: {e}")
         return {"success": False, "error": str(e)}
+def inject_audio_to_meet(driver, audio_file_path: str):
+    """
+    Inject audio into Google Meet automatically by finding the active RTCPeerConnection.
+    Assumes audio_file_path is a WAV or PCM file.
+    """
+    import base64
+    import os
+
+    if not os.path.exists(audio_file_path):
+        raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
+
+    # Convert audio file to base64
+    with open(audio_file_path, "rb") as f:
+        audio_base64 = base64.b64encode(f.read()).decode("utf-8")
+
+    js_code = f"""
+    (async () => {{
+        // 1. Find active RTCPeerConnection(s)
+        let pcs = [];
+        for (const key in window) {{
+            try {{
+                if (window[key] instanceof RTCPeerConnection) pcs.push(window[key]);
+            }} catch (e) {{}}
+        }}
+        if (pcs.length === 0) {{
+            console.warn("⚠️ No RTCPeerConnection found!");
+            return;
+        }}
+        const pc = pcs[0];
+        window.botPC = pc;  // optional reference
+
+        // 2. Decode base64 audio
+        const audioData = Uint8Array.from(atob("{audio_base64}"), c => c.charCodeAt(0));
+        const audioContext = new AudioContext({{ sampleRate: 48000 }});
+        const audioBuffer = await audioContext.decodeAudioData(audioData.buffer);
+
+        // 3. Create MediaStreamTrackGenerator
+        const generator = new MediaStreamTrackGenerator({{ kind: "audio" }});
+        const writer = generator.writable.getWriter();
+        const channelData = audioBuffer.getChannelData(0);
+        const frameSize = 1024;
+        const sampleRate = audioBuffer.sampleRate;
+
+        for (let i = 0; i < channelData.length; i += frameSize) {{
+            const frameArray = new Float32Array(frameSize);
+            frameArray.set(channelData.subarray(i, i + frameSize));
+            await writer.write(new AudioData({{
+                timestamp: (i / sampleRate) * 1000000,
+                data: frameArray,
+                format: "f32",
+                numberOfChannels: 1,
+                sampleRate
+            }}));
+        }}
+        writer.close();
+
+        // 4. Add track to Meet
+        pc.addTrack(generator);
+        console.log("✅ Bot audio track added to Meet");
+    }})();
+    """
+
+    driver.execute_script(js_code)
+    print("🔊 Injected bot audio into Meet")

@@ -1,7 +1,7 @@
 fastapi==0.111.0
 uvicorn[standard]==0.22.0
 SQLAlchemy==2.0.25
-pydantic==2.7.0
+pydantic==2.11.7
 pydantic-settings==2.1.0   # replaces python-dotenv in most cases, tighter FastAPI integration
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
@@ -17,3 +17,9 @@ selenium>=4.16.0
 assemblyai
 speechrecognition==3.14.3
 pydub==0.25.1
+pyttsx3==2.90
+pygame==2.3.0
+requests ==2.31.0
+elevenlabs==2.14.0
+numpy
+soundfile
