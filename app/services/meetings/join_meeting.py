@@ -13,7 +13,7 @@ import threading
 import json
 from typing import Dict, List, Any
 from datetime import datetime
-from app.services.meetings.speak_meeting import speak_in_meeting
+
 
 
 logger = logging.getLogger(__name__)
@@ -84,21 +84,21 @@ def move_chrome_to_sink(sink_name="meet_sink", retries=15, delay=2):
                 ):
                     if current_index:
                         subprocess.call(["pactl", "move-sink-input", current_index, sink_name])
-                        logger.info(f"✅ Moved Chrome/Meet stream {current_index} to {sink_name}")
+                        logger.info(f" Moved Chrome/Meet stream {current_index} to {sink_name}")
                         found = True
                         break
 
             if found:
                 return True
 
-            logger.info(f"⏳ No Chrome/Chromium sink-input found yet (attempt {attempt+1}/{retries}), retrying...")
+            logger.info(f" No Chrome/Chromium sink-input found yet (attempt {attempt+1}/{retries}), retrying...")
             time.sleep(delay)
 
-        logger.warning("⚠️ Gave up: no Chrome/Meet sink-input appeared")
+        logger.warning(" Gave up: no Chrome/Meet sink-input appeared")
         return False
 
     except Exception as e:
-        logger.error(f"❌ Failed to move Chrome stream: {e}")
+        logger.error(f" Failed to move Chrome stream: {e}")
         return False
     
 def format_timestamp(seconds: float) -> str:
@@ -111,7 +111,7 @@ def format_timestamp(seconds: float) -> str:
     else:
         return f"{mins:02d}:{secs:02d}"
 
-def scrape_captions_json(driver, output_file="captions.json", stop_event=None, interval=1.5, stable_time=1.5, start_time=None):
+def scrape_captions_json(driver, stop_event=None, interval=1.5, stable_time=1.5, start_time=None, shared_list=None):
     """
     Robust Google Meet captions scraper.
 
@@ -123,7 +123,7 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
     - Ignores captions with empty speaker.
     - Merges consecutive blocks from the same speaker.
     """
-    finalized_captions = []
+    finalized_captions = [] if shared_list is None else shared_list
     active_captions = {}         # Current text per speaker
     last_finalized_text = {}     # Last finalized text per speaker
     if start_time is None:
@@ -135,12 +135,12 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
             blocks = container.find_elements(By.XPATH, ".//div[contains(@class,'nMcdL')]")
             current_time = time.time()
             updated = False
-            
+
             # Process blocks to merge consecutive same-speaker blocks
             merged_blocks = []
             current_speaker = None
             current_text = ""
-            
+
             for block in blocks:
                 try:
                     speaker = block.find_element(By.CSS_SELECTOR, ".NWpY1d").text.strip()
@@ -157,7 +157,7 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
                     text = ""
                 if not text:
                     continue
-                
+
                 # Merge consecutive blocks from same speaker
                 if speaker == current_speaker:
                     # Same speaker - merge text
@@ -169,11 +169,11 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
                             "speaker": current_speaker,
                             "text": current_text.strip()
                         })
-                    
+
                     # Start new merged block
                     current_speaker = speaker
                     current_text = text
-            
+
             # Don't forget the last merged block
             if current_speaker:
                 merged_blocks.append({
@@ -213,26 +213,21 @@ def scrape_captions_json(driver, output_file="captions.json", stop_event=None, i
                                     "timestamp": format_timestamp(elapsed)
                                 })
                                 last_finalized_text[speaker] = text
-                                updated = True
 
                             active_captions[speaker]["finalized"] = True
-
-            # Write to JSON only if updated
-            if updated:
-                with open(output_file, "w", encoding="utf-8") as f:
-                    json.dump(finalized_captions, f, indent=2)
 
         except Exception:
             pass
 
         time.sleep(interval)
 
+    return finalized_captions
+
 
 def join_and_record_meeting(
     request: MeetRequest,
     record_seconds: int = 60,
     output_file: str = "meeting_audio.wav",
-    captions_file: str = "captions.json"
 ):
     """
     Join Google Meet as guest, disable mic/cam, record audio and captions.
@@ -244,6 +239,7 @@ def join_and_record_meeting(
     ffmpeg_proc = None
     caption_thread = None
     stop_scraping = threading.Event()
+    shared_captions = []
 
     try:
         driver.get(request.meet_url)
@@ -256,18 +252,18 @@ def join_and_record_meeting(
             )
             if mic_button.get_attribute("aria_pressed") != "true":
                 mic_button.click()
-                logger.info("🎙️ Mic disabled")
+                logger.info(" Mic disabled")
         except Exception:
-            logger.warning("⚠️ Could not find mic button")
+            logger.warning(" Could not find mic button")
 
         # Disable cam
         try:
             cam_button = driver.find_element(By.XPATH, "//div[@role='button'][@aria-label[contains(., 'camera')]]")
             if cam_button.get_attribute("aria_pressed") != "true":
                 cam_button.click()
-                logger.info("📷 Camera disabled")
+                logger.info(" Camera disabled")
         except Exception:
-            logger.warning("⚠️ Could not find camera button")
+            logger.warning(" Could not find camera button")
 
         # Enter name
         try:
@@ -277,9 +273,9 @@ def join_and_record_meeting(
             guest_name = getattr(request, 'guest_name', 'Meeting Bot')
             name_input.clear()
             name_input.send_keys(guest_name)
-            logger.info(f"✅ Entered name: {guest_name}")
+            logger.info(f" Entered name: {guest_name}")
         except Exception as e:
-            logger.warning(f"⚠️ Could not enter name: {e}")
+            logger.warning(f" Could not enter name: {e}")
 
         # Click Ask to Join / Join now
         try:
@@ -287,16 +283,16 @@ def join_and_record_meeting(
                 EC.element_to_be_clickable((By.XPATH, "//span[text()='Ask to join']/ancestor::button"))
             )
             ask_to_join_button.click()
-            logger.info("✅ Clicked Ask to join")
+            logger.info(" Clicked Ask to join")
         except Exception:
             try:
                 join_button = WebDriverWait(driver, 5).until(
                     EC.element_to_be_clickable((By.XPATH, "//span[text()='Join now']/ancestor::button"))
                 )
                 join_button.click()
-                logger.info("✅ Clicked Join now (fallback)")
+                logger.info(" Clicked Join now (fallback)")
             except Exception:
-                logger.warning("⚠️ Could not find join button")
+                logger.warning(" Could not find join button")
 
         # Wait until inside meeting
         try:
@@ -307,21 +303,15 @@ def join_and_record_meeting(
                 )
             )
             if driver.find_elements(By.XPATH, "//button[@aria-label='Leave call']"):
-                logger.info("✅ Successfully joined the meeting")
-                speak_in_meeting(driver, 
-                    "Hello everyone, this is the meeting assistant. How are you all doing?", 
-                    delay_seconds=60, 
-                    sink_name="meet_sink"
-            )
-
+                logger.info(" Successfully joined the meeting")              
             else:
-                logger.info("⏳ Waiting for host approval")
+                logger.info(" Waiting for host approval")
                 WebDriverWait(driver, 60).until(
                     EC.presence_of_element_located((By.XPATH, "//button[@aria-label='Leave call']"))
                 )
-                logger.info("✅ Host approved - now in meeting")
+                logger.info(" Host approved - now in meeting")
         except Exception as e:
-            logger.error(f"❌ Failed to join meeting: {e}")
+            logger.error(f" Failed to join meeting: {e}")
             raise
 
         # Turn on captions
@@ -331,28 +321,28 @@ def join_and_record_meeting(
             )
             if "Turn on captions" in captions_button.get_attribute("aria-label"):
                 captions_button.click()
-                logger.info("💬 Captions turned ON")
+                logger.info(" Captions turned ON")
             else:
-                logger.info("💬 Captions already ON")
+                logger.info(" Captions already ON")
         except Exception:
-            logger.warning("⚠️ Could not enable captions")
+            logger.warning(" Could not enable captions")
 
         # Move Chrome audio to virtual sink
         move_chrome_to_sink("meet_sink")
 
         start_time = time.time() 
-        # Start captions scraping thread
+        # Start captions scraping thread with shared list
         caption_thread = threading.Thread(
             target=scrape_captions_json,
-            args=(driver, captions_file, stop_scraping, 1.5, 1.5, start_time),
+            args=(driver, stop_scraping, 1.5, 1.5, start_time, shared_captions),
             daemon=True
         )
         caption_thread.start()
-        logger.info("📝 Started captions scraping")
+        logger.info(" Started captions scraping")
 
         # Start FFmpeg
         ffmpeg_proc = start_ffmpeg(output_file)
-        logger.info(f"🎤 Recording meeting audio for {record_seconds} seconds...")
+        logger.info(f" Recording meeting audio for {record_seconds} seconds...")
 
         start_time = time.time()
         while True:
@@ -362,15 +352,15 @@ def join_and_record_meeting(
             try:
                 leave_button = driver.find_element(By.XPATH, "//button[@aria-label='Leave call']")
                 if not leave_button.is_displayed():
-                    logger.info("📴 Leave call button disappeared — meeting ended")
+                    logger.info(" Leave call button disappeared — meeting ended")
                     break
             except:
-                logger.info("📴 Leave call button not found — meeting likely ended")
+                logger.info(" Leave call button not found — meeting likely ended")
                 break
 
             # Timeout
             if elapsed > record_seconds:
-                logger.info("⏳ Max recording time reached — stopping")
+                logger.info(" Max recording time reached — stopping")
                 break
 
             time.sleep(2)
@@ -380,17 +370,17 @@ def join_and_record_meeting(
         if caption_thread:
             caption_thread.join(timeout=5)
         driver.quit()
-        logger.info("🔚 Browser closed")
+        logger.info(" Browser closed")
 
         if ffmpeg_proc:
             try:
                 ffmpeg_proc.terminate()
                 ffmpeg_proc.wait()
-                logger.info(f"🔊 Meeting audio saved to: {output_file}")
+                logger.info(f" Meeting audio saved to: {output_file}")
             except Exception as e:
-                logger.warning(f"⚠️ Failed to stop FFmpeg: {e}")
-
-    return output_file, captions_file
+                logger.warning(f" Failed to stop FFmpeg: {e}")
+        # After stopping, return the shared captions list
+        return output_file, shared_captions
 def parse_timestamp_to_seconds(timestamp: str) -> float:
     """Convert HH:MM:SS or MM:SS timestamp to seconds."""
     parts = timestamp.split(':')
@@ -413,81 +403,70 @@ def seconds_to_timestamp(seconds: float) -> str:
     else:
         return f"{minutes:02d}:{secs:02d}"
 
-def build_speaker_mapping(captions_file: str) -> Dict[str, str]:
-    """
-    Build a mapping from speaker labels (A, B, C, etc.) to actual names from captions.
-    Uses the order of first appearance to assign speaker labels.
-    """
-    try:
-        with open(captions_file, 'r', encoding='utf-8') as f:
-            captions = json.load(f)
+# def build_speaker_mapping(captions_file: str) -> Dict[str, str]:
+#     """
+#     Build a mapping from speaker labels (A, B, C, etc.) to actual names from captions.
+#     Uses the order of first appearance to assign speaker labels.
+#     """
+#     try:
+#         with open(captions_file, 'r', encoding='utf-8') as f:
+#             captions = json.load(f)
         
-        # Track unique speakers in order of appearance
-        speaker_order = []
-        seen_speakers = set()
+#         # Track unique speakers in order of appearance
+#         speaker_order = []
+#         seen_speakers = set()
         
-        for caption in captions:
-            speaker = caption.get('speaker', '').strip()
-            if speaker and speaker not in seen_speakers:
-                speaker_order.append(speaker)
-                seen_speakers.add(speaker)
+#         for caption in captions:
+#             speaker = caption.get('speaker', '').strip()
+#             if speaker and speaker not in seen_speakers:
+#                 speaker_order.append(speaker)
+#                 seen_speakers.add(speaker)
         
-        # Create mapping: A -> first speaker, B -> second speaker, etc.
-        speaker_mapping = {}
-        for i, actual_name in enumerate(speaker_order):
-            label = chr(ord('A') + i)  # A, B, C, D, etc.
-            speaker_mapping[label] = actual_name
+#         # Create mapping: A -> first speaker, B -> second speaker, etc.
+#         speaker_mapping = {}
+#         for i, actual_name in enumerate(speaker_order):
+#             label = chr(ord('A') + i)  # A, B, C, D, etc.
+#             speaker_mapping[label] = actual_name
         
-        logger.info(f"📝 Speaker mapping created: {speaker_mapping}")
-        return speaker_mapping
+#         logger.info(f" Speaker mapping created: {speaker_mapping}")
+#         return speaker_mapping
         
-    except Exception as e:
-        logger.error(f"❌ Failed to build speaker mapping: {e}")
-        return {}
+#     except Exception as e:
+#         logger.error(f" Failed to build speaker mapping: {e}")
+#         return {}
 
-def merge_transcript_with_captions(transcript_file, captions_file, output_file):
-    with open(transcript_file, 'r', encoding='utf-8') as f:
-        transcript = json.load(f)
-    with open(captions_file, 'r', encoding='utf-8') as f:
-        captions = json.load(f)
-
-    merged_transcript = []
-    for i, (t, c) in enumerate(zip(transcript, captions), 1):
+def merge_transcript_with_captions(transcript: List[Dict[str, Any]], captions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    merged = []
+    for t, c in zip(transcript, captions):
         merged_segment = {
-            "id": i,
-            "start_time": t.get("start_time", "00:00"),
-            "end_time": t.get("end_time", "00:00"),
+            "id": t.get("id"),
+            "start_time": t.get("start_time"),
+            "end_time": t.get("end_time"),
             "speaker_label": t.get("speaker", "Unknown"),
             "speaker_name": c.get("speaker", "Unknown"),
             "text": t.get("text", "").strip(),
             "duration_seconds": parse_timestamp_to_seconds(t.get("end_time", "00:00")) -
                                parse_timestamp_to_seconds(t.get("start_time", "00:00"))
         }
-        merged_transcript.append(merged_segment)
+        merged.append(merged_segment)
 
     final_output = {
         "metadata": {
-            "total_segments": len(merged_transcript),
-            "generated_at": datetime.now().isoformat(),
-            "source_files": {"transcript": transcript_file, "captions": captions_file}
+            "total_segments": len(merged),
+            "generated_at": datetime.now().isoformat()
         },
-        "transcript": merged_transcript
+        "transcript": merged
     }
 
-    with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(final_output, f, indent=2, ensure_ascii=False)
+    return final_output
 
-    return merged_transcript
-
-def generate_summary_stats(merged_file: str) -> Dict[str, Any]:
+def generate_summary_stats(merged_data: Dict[str, Any]) -> Dict[str, Any]:
     """Generate summary statistics from the merged transcript."""
     try:
-        with open(merged_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        transcript = data.get('transcript', [])
-        speaker_mapping = data.get('metadata', {}).get('speaker_mapping', {})
-        
+
+        transcript = merged_data.get('transcript', [])
+        speaker_mapping = merged_data.get('metadata', {}).get('speaker_mapping', {})
+
         # Calculate speaker statistics
         speaker_stats = {}
         total_duration = 0
@@ -528,57 +507,44 @@ def generate_summary_stats(merged_file: str) -> Dict[str, Any]:
             "speaker_statistics": speaker_stats
         }
         
-        logger.info(f"📈 Summary statistics generated")
+        logger.info(f" Summary statistics generated")
         return summary
         
     except Exception as e:
-        logger.error(f"❌ Failed to generate summary: {e}")
+        logger.error(f" Failed to generate summary: {e}")
         return {}
 
 # Example usage function
-def process_meeting_transcript(audio_file: str, captions_file: str, output_dir: str = "."):
+def process_meeting_transcript( transcript: List[Dict[str, Any]], captions: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Complete workflow to process meeting transcript:
-    1. Transcribe audio (assumes transcribe_file_json is available)
+    1. Transcript already passed into function
     2. Merge with captions data
     3. Generate summary statistics
     """
-    import os
-    
-    # File paths
-    transcript_file = os.path.join(output_dir, "meeting_transcript.json")
-    merged_file = os.path.join(output_dir, "merged_transcript.json")
-    summary_file = os.path.join(output_dir, "transcript_summary.json")
     
     try:
-        # Step 1: Transcribe audio (assuming transcribe_file_json function exists)
-        logger.info("🎵 Starting audio transcription...")
-        #transcript_data = transcribe_file_json(audio_file, transcript_file)
         
         # Step 2: Merge transcript with captions
-        logger.info("🔗 Merging transcript with captions...")
-        merged_data = merge_transcript_with_captions(transcript_file, captions_file, merged_file)
-        
+        logger.info(" Merging transcript with captions...")
+        merged_data = merge_transcript_with_captions(transcript, captions)
+
         if merged_data:
             # Step 3: Generate summary
-            logger.info("📊 Generating summary statistics...")
-            summary = generate_summary_stats(merged_file)
-            
+            logger.info(" Generating summary statistics...")
+            summary = generate_summary_stats(merged_data)
+
             if summary:
-                with open(summary_file, 'w', encoding='utf-8') as f:
-                    json.dump(summary, f, indent=2, ensure_ascii=False)
-                logger.info(f"✅ Summary saved to: {summary_file}")
-            
-            return {
-                "transcript_file": transcript_file,
-                "merged_file": merged_file,
-                "summary_file": summary_file,
-                "success": True
-            }
-        else:
-            logger.error("❌ Merge failed")
-            return {"success": False}
+                merged_data['metadata']['summary'] = summary
+                return {
+                    "merged_transcript": merged_data,
+                    "summary": summary
+                }
+            else:
+                logger.error(" Summary generation failed")
+                return {"error": "Summary generation failed"}
+                
             
     except Exception as e:
-        logger.error(f"❌ Processing failed: {e}")
+        logger.error(f" Processing failed: {e}")
         return {"success": False, "error": str(e)}

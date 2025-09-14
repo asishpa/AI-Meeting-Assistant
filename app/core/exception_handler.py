@@ -1,6 +1,12 @@
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from app.core.errors import SignupError
+from app.core.errors import SignupError, TranscriptionError
+async def transcription_error_handler(request: Request, exc: TranscriptionError):
+    logger.error(f"Transcription error: {exc}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=exc.detail
+    )
 import logging
 
 logger = logging.getLogger(__name__)

@@ -8,6 +8,7 @@ class ErrorCode(str, Enum):
     INVALID_CREDENTIALS = "AUTH_002"
     EMAIL_ALREADY_EXISTS = "AUTH_003"
     UNAUTHENTICATED_USER = "AUTH_004"
+    TRANSCRIPTION_FAILED = "TRANSCRIPTION_001"
 
 class SignupError(HTTPException):
     """ Custom exception in case of signup failure """
@@ -25,6 +26,14 @@ class SignupError(HTTPException):
             "message": message,
             "details": self.details
         })
+class TranscriptionError(HTTPException):
+    """ Custom exception for transcription failures """
+    def __init__(self, message: str, status_code: int = status.HTTP_400_BAD_REQUEST):
+        super().__init__(status_code=status_code, detail={
+            "error_code": ErrorCode.TRANSCRIPTION_FAILED,
+            "message": message
+        })
+
 class AuthError(HTTPException):
     """ Custom exception in case of authentication failure """
     def __init__(
@@ -46,7 +55,6 @@ class SignupErrorMessages:
     USER_NOT_FOUND = "User not found"
     INVALID_CREDENTIALS = "Invalid credentials"
     EMAIL_ALREADY_EXISTS = "Email already exists"
-
 # convenience functions for common signup errors
 def raise_invalid_credentials():
     error_info = SignupErrorMessages.INVALID_CREDENTIALS

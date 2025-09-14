@@ -1,10 +1,17 @@
+
 import assemblyai as aai
 import os
 import logging
 from dotenv import load_dotenv
+from pydantic import BaseModel
+from typing import List
 import json
+from app.schemas.transcript import TranscriptUtterance
+from app.core.errors import TranscriptionError
+
 
 logger = logging.getLogger(__name__)
+
 
 load_dotenv()
 aai.settings.api_key = os.getenv("ASSEMBLYAI_API_KEY")
@@ -20,13 +27,15 @@ def format_timestamp(ms: int) -> str:
     else:
         return f"{mins:02d}:{secs:02d}"
 
-def transcribe_file_json(audio_file: str, transcript_file: str) -> dict:
+
+def transcribe_file_json(audio_file: str) -> List[TranscriptUtterance]:
     """
     Transcribe an audio file using AssemblyAI SDK with speaker labels.
-    Saves the transcript in JSON format with HH:MM:SS timestamps.
+    Returns a list of TranscriptUtterance models with HH:MM:SS timestamps.
+    Raises TranscriptionError on failure.
     """
     try:
-        logger.info(f"📝 Transcribing audio file: {audio_file}")
+        logger.info(f" Transcribing audio file: {audio_file}")
 
         config = aai.TranscriptionConfig(
             speech_model=aai.SpeechModel.universal,
@@ -38,25 +47,23 @@ def transcribe_file_json(audio_file: str, transcript_file: str) -> dict:
         transcript = transcriber.transcribe(audio_file)
 
         if transcript.status == "error":
-            raise RuntimeError(f"Transcription failed: {transcript.error}")
+            raise TranscriptionError(message=f"Transcription failed: {transcript.error}")
 
-        # Build structured JSON transcript using utterances
-        json_transcript = []
-        for utt in transcript.utterances:
-            json_transcript.append({
-                "start_time": format_timestamp(utt.start),
-                "end_time": format_timestamp(utt.end),
-                "text": utt.text,
-                "speaker": utt.speaker
-            })
+        # Build structured transcript using utterances and Pydantic schema
+        utterances = [
+            TranscriptUtterance(
+                start_time=format_timestamp(utt.start),
+                end_time=format_timestamp(utt.end),
+                text=utt.text,
+                speaker=utt.speaker
+            )
+            for utt in transcript.utterances
+        ]
 
-        # Save JSON to file
-        with open(transcript_file, "w", encoding="utf-8") as f:
-            json.dump(json_transcript, f, indent=2)
+        return utterances
 
-        logger.info(f"✅ JSON transcript saved to: {transcript_file}")
-        return json_transcript
-
+    except TranscriptionError:
+        raise
     except Exception as e:
-        logger.error(f"❌ Failed to transcribe audio: {e}")
-        return {}
+        logger.error(f"Failed to transcribe audio: {e}")
+        raise TranscriptionError(message=str(e), status_code=500)
