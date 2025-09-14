@@ -1,23 +1,31 @@
 from app.utils.transcript import TranscriptUtterance
 from typing import List
+from sqlalchemy.future import select
+from app.db.session import get_db
+from app.models.meeting import Meeting
+from fastapi import HTTPException
+from app.core.errors import TranscriptionError
 
-def get_merged_transcript(meeting_id: str, user_id: str) -> List[TranscriptUtterance]:
-    # TODO: Replace with actual DB fetch logic
-    # For now, load from a static file as a placeholder
-    transcript_path = f"meeting_transcript.txt"
+async def get_merged_transcript(meeting_id: str, user_id: str, db_session=None) -> List[TranscriptUtterance]:
+    if db_session is None:
+        raise RuntimeError("DB session required")
+    result = await db_session.execute(
+        select(Meeting).where(Meeting.id == meeting_id, Meeting.user_id == user_id)
+    )
+    meeting = result.scalars().first()
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found or access denied")
+    merged = meeting.merged_transcript or []
+    # Validate and convert to TranscriptUtterance list
     utterances = []
-    try:
-        with open(transcript_path, "r", encoding="utf-8") as f:
-            for line in f:
-                # Example format: start_time|end_time|speaker|text
-                parts = line.strip().split("|")
-                if len(parts) == 4:
-                    utterances.append(TranscriptUtterance(
-                        start_time=parts[0],
-                        end_time=parts[1],
-                        speaker=parts[2],
-                        text=parts[3]
-                    ))
-    except Exception:
-        pass
+    invalid_items = []
+    for idx, item in enumerate(merged):
+        try:
+            utterances.append(TranscriptUtterance(**item))
+        except Exception as e:
+            invalid_items.append({"index": idx, "item": item, "error": str(e)})
+    if invalid_items:
+        raise TranscriptionError(
+            message=f"Invalid transcript items found: {invalid_items}"
+        )
     return utterances

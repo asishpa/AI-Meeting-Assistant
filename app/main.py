@@ -1,7 +1,6 @@
 from dotenv import load_dotenv
 load_dotenv() 
 from fastapi import FastAPI
-from app.api.transcript import router as transcript_router
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.api import api_router
 
@@ -16,4 +15,3 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
-app.include_router(transcript_router)
