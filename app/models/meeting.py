@@ -7,13 +7,12 @@ from sqlalchemy.dialects.postgresql import JSON, JSONB
 from sqlalchemy.orm import relationship
 
 
-
 class Meeting(Base):
     __tablename__ = "meetings"
     __table_args__ = {"schema": "assistant"}
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("assistant.users.id", nullable=False))  # Foreign key to User
+    user_id = Column(UUID(as_uuid=True), ForeignKey("assistant.users.user_id"), nullable=False)  # Foreign key to User
     
     title = Column(String, index=True)
     participants = Column(JSONB, nullable=True)

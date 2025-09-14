@@ -50,6 +50,14 @@ class AuthError(HTTPException):
             "message": message,
             "details": self.details
         })
+# Auth error messages for authentication failures
+class AuthErrorMessages:
+    """ Error messages for authentication failures """
+    UNAUTHENTICATED_USER = "User is not authenticated. Please provide a valid token."
+    INVALID_TOKEN = "Invalid or expired token. Please login again."
+    USER_NOT_FOUND = "Authenticated user not found."
+
+# Signup error messages for signup failures
 class SignupErrorMessages:
     """ Error messages for signup failures """
     USER_NOT_FOUND = "User not found"
