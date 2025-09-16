@@ -240,6 +240,7 @@ def join_and_record_meeting(
     caption_thread = None
     stop_scraping = threading.Event()
     shared_captions = []
+    joined = False  # <-- track join status
 
     try:
         driver.get(request.meet_url)
@@ -304,66 +305,75 @@ def join_and_record_meeting(
             )
             if driver.find_elements(By.XPATH, "//button[@aria-label='Leave call']"):
                 logger.info(" Successfully joined the meeting")              
+                joined = True
             else:
                 logger.info(" Waiting for host approval")
-                WebDriverWait(driver, 60).until(
-                    EC.presence_of_element_located((By.XPATH, "//button[@aria-label='Leave call']"))
-                )
-                logger.info(" Host approved - now in meeting")
+                try:
+                    WebDriverWait(driver, 600).until(
+                        EC.presence_of_element_located((By.XPATH, "//button[@aria-label='Leave call']"))
+                    )
+                    logger.info(" Host approved - now in meeting")
+                    joined = True
+                except Exception:
+                    logger.error(" Host did not approve join request — exiting")
+                    return None, []
         except Exception as e:
             logger.error(f" Failed to join meeting: {e}")
-            raise
+            return None, []
 
-        # Turn on captions
-        try:
-            captions_button = WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.XPATH, "//button[contains(@aria-label, 'captions')]"))
-            )
-            if "Turn on captions" in captions_button.get_attribute("aria-label"):
-                captions_button.click()
-                logger.info(" Captions turned ON")
-            else:
-                logger.info(" Captions already ON")
-        except Exception:
-            logger.warning(" Could not enable captions")
-
-        # Move Chrome audio to virtual sink
-        move_chrome_to_sink("meet_sink")
-
-        start_time = time.time() 
-        # Start captions scraping thread with shared list
-        caption_thread = threading.Thread(
-            target=scrape_captions_json,
-            args=(driver, stop_scraping, 1.5, 1.5, start_time, shared_captions),
-            daemon=True
-        )
-        caption_thread.start()
-        logger.info(" Started captions scraping")
-
-        # Start FFmpeg
-        ffmpeg_proc = start_ffmpeg(output_file)
-        logger.info(f" Recording meeting audio for {record_seconds} seconds...")
-
-        start_time = time.time()
-        while True:
-            elapsed = time.time() - start_time
-
-            # Meeting ended?
+        #  Only start recording if joined
+        if joined:
+            # Turn on captions
             try:
-                leave_button = driver.find_element(By.XPATH, "//button[@aria-label='Leave call']")
-                if not leave_button.is_displayed():
-                    logger.info(" Leave call button disappeared — meeting ended")
+                captions_button = WebDriverWait(driver, 15).until(
+                    EC.presence_of_element_located((By.XPATH, "//button[contains(@aria-label, 'captions')]"))
+                )
+                if "Turn on captions" in captions_button.get_attribute("aria-label"):
+                    captions_button.click()
+                    logger.info(" Captions turned ON")
+                else:
+                    logger.info(" Captions already ON")
+            except Exception:
+                logger.warning(" Could not enable captions")
+
+            # Move Chrome audio to virtual sink
+            move_chrome_to_sink("meet_sink")
+
+            start_time = time.time()
+            # Start captions scraping thread
+            caption_thread = threading.Thread(
+                target=scrape_captions_json,
+                args=(driver, stop_scraping, 1.5, 1.5, start_time, shared_captions),
+                daemon=True
+            )
+            caption_thread.start()
+            logger.info(" Started captions scraping")
+
+            # Start FFmpeg
+            ffmpeg_proc = start_ffmpeg(output_file)
+            logger.info(f" Recording meeting audio for {record_seconds} seconds...")
+
+            # Recording loop
+            start_time = time.time()
+            while True:
+                elapsed = time.time() - start_time
+
+                # Meeting ended?
+                try:
+                    leave_button = driver.find_element(By.XPATH, "//button[@aria-label='Leave call']")
+                    if not leave_button.is_displayed():
+                        logger.info(" Leave call button disappeared — meeting ended")
+                        break
+                except:
+                    logger.info(" Leave call button not found — meeting likely ended")
                     break
-            except:
-                logger.info(" Leave call button not found — meeting likely ended")
-                break
 
-            # Timeout
-            if elapsed > record_seconds:
-                logger.info(" Max recording time reached — stopping")
-                break
+                # Timeout
+                if elapsed > record_seconds:
+                    logger.info(" Max recording time reached — stopping")
+                    break
 
-            time.sleep(2)
+                time.sleep(2)
 
     finally:
         stop_scraping.set()
@@ -379,8 +389,8 @@ def join_and_record_meeting(
                 logger.info(f" Meeting audio saved to: {output_file}")
             except Exception as e:
                 logger.warning(f" Failed to stop FFmpeg: {e}")
-        # After stopping, return the shared captions list
-        return output_file, shared_captions
+
+        return output_file if joined else None, shared_captions if joined else []
 def parse_timestamp_to_seconds(timestamp: str) -> float:
     """Convert HH:MM:SS or MM:SS timestamp to seconds."""
     parts = timestamp.split(':')
