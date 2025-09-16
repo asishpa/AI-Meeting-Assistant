@@ -45,6 +45,6 @@ async def get_current_user(
             status_code=401
         )
 
-    stmt = select(User).where(User.id == user_id)
+    stmt = select(User).where(User.user_id == user_id)
     result = await session.execute(stmt)
     return result.scalars().first()

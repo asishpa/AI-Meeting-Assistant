@@ -29,5 +29,5 @@ async def join_and_record(request: MeetRequest, current_user=Depends(get_current
 #     return {"status": job.state}
 @router.get("/merged-transcript/{meeting_id}", response_model=TranscriptResponse)
 async def merged_transcript(meeting_id: str, current_user=Depends(get_current_user), db_session=Depends(get_db)):
-    utterances = await get_merged_transcript(meeting_id, current_user.id, db_session=db_session)
+    utterances = await get_merged_transcript(meeting_id, current_user.user_id, db_session=db_session)
     return TranscriptResponse(meeting_id=meeting_id, transcript=utterances)
