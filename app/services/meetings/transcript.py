@@ -18,7 +18,7 @@ async def get_merged_transcript(meeting_id: str, user_id: str, db_session=None) 
         raise HTTPException(status_code=404, detail="Meeting not found or access denied")
 
     merged = meeting.merged_transcript or {}
-    transcript_items = merged.get("transcript", [])  # ✅ only take utterances
+    transcript_items = merged.get("transcript", []) 
 
     utterances = []
     invalid_items = []

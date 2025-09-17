@@ -1,11 +1,15 @@
+from typing import List
 from app.schemas.transcript import TranscriptUtterance, TranscriptResponse
 from fastapi import APIRouter, Depends
 from app.db.session import get_db
-from app.schemas.meet import MeetRequest
+from app.schemas.meet import MeetRequest,MeetingMetadataDetails
+from app.services.meetings.join_meeting import get_user_meetings
 from app.workers.meeting_worker import record_meeting_task
 from app.services.user_context import get_current_user
 from app.schemas.transcript import TranscriptUtterance, TranscriptResponse
 from app.services.meetings.transcript import get_merged_transcript
+from sqlalchemy.orm import Session
+from uuid import UUID
 
 
 router = APIRouter(prefix="/meetings", tags=["meetings"])
@@ -31,3 +35,9 @@ async def join_and_record(request: MeetRequest, current_user=Depends(get_current
 async def merged_transcript(meeting_id: str, current_user=Depends(get_current_user), db_session=Depends(get_db)):
     utterances = await get_merged_transcript(meeting_id, current_user.user_id, db_session=db_session)
     return TranscriptResponse(meeting_id=meeting_id, transcript=utterances)
+
+
+
+@router.get("/users/{user_id}/meetings", response_model=List[MeetingMetadataDetails])
+def fetch_user_meetings(user_id: UUID, db: Session = Depends(get_db)):
+    return get_user_meetings(db, user_id)
