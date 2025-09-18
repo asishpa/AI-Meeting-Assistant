@@ -72,6 +72,8 @@ def record_meeting_task(request_data: dict):
             transcript=transcript,
             captions=captions
         )
+        speakers = list({seg["speaker_name"] for seg in results["merged_transcript"]["transcript"]})
+        logger.info(f"Speakers detected: {speakers}")
         transcript_text = "\n".join(
         [f"{seg['speaker_name']}: {seg['text']}" for seg in results["merged_transcript"]["transcript"]]
 )
@@ -86,7 +88,8 @@ def record_meeting_task(request_data: dict):
             "merged_transcript": results.get("merged_transcript") if "merged_transcript" in results else None,
             "user_id": request.user_id,
             "meet_url": request.meet_url,  
-            "audio_object": audio_object    
+            "audio_object": audio_object,
+            "participants": speakers,   
         }
         save_meeting_to_db(request, db_data)
     return asyncio.run(run())
@@ -98,7 +101,7 @@ def save_meeting_to_db(request: MeetRequest, results: dict):
         # Create meeting record
         meeting = Meeting(
             title="Meeting",
-            #participants=participants,
+            participants=results.get("participants"),
             start_time=request.start_time,
             transcript=results.get("transcript"),
             summary=results.get("summary"),
