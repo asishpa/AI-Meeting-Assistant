@@ -1,13 +1,11 @@
 from pydantic import BaseModel
+from typing import Optional
 
 class TranscriptUtterance(BaseModel):
-    id: str
     start_time: str
     end_time: str
     text: str
-    duration_seconds: int
-    speaker_name: str
-    speaker_label: str
+    speaker: Optional[str] = None
 class TranscriptResponse(BaseModel):
     meeting_id: str
     transcript: list[TranscriptUtterance]

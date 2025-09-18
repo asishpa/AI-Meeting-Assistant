@@ -449,9 +449,9 @@ def seconds_to_timestamp(seconds: float) -> str:
 
 def merge_transcript_with_captions(transcript: List[Dict[str, Any]], captions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     merged = []
-    for t, c in zip(transcript, captions):
+    for idx, (t, c) in enumerate(zip(transcript, captions), start=1):
         merged_segment = {
-            "id": t.get("id"),
+            "id": idx,
             "start_time": t.get("start_time"),
             "end_time": t.get("end_time"),
             "speaker_label": t.get("speaker", "Unknown"),
