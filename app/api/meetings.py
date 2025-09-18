@@ -17,7 +17,7 @@ router = APIRouter(prefix="/meetings", tags=["meetings"])
 @router.post("/join-and-record")
 async def join_and_record(request: MeetRequest, current_user=Depends(get_current_user)):
     payload = request.model_dump()
-    payload["user_id"] = current_user.id
+    payload["user_id"] = current_user.user_id
     job = record_meeting_task.delay(payload)
     return {"status": "queued", "job_id": job.id}
 
@@ -38,6 +38,3 @@ async def merged_transcript(meeting_id: str, current_user=Depends(get_current_us
 
 
 
-@router.get("/users/{user_id}/meetings", response_model=List[MeetingMetadataDetails])
-def fetch_user_meetings(user_id: UUID, db: Session = Depends(get_db)):
-    return get_user_meetings(db, user_id)

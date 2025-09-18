@@ -9,7 +9,6 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from app import db
-from app.api import meetings
 from app.models.meeting import Meeting
 from app.schemas.meet import MeetRequest, MeetingMetadataDetails
 import threading
