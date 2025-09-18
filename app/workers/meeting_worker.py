@@ -79,7 +79,7 @@ def record_meeting_task(request_data: dict):
 )
         logger.info(f"Transcript Text:\n{transcript_text}")
         final_summary = generate_langchain_summary(transcript_text)
-
+        logger.info(f"Final Summary:\n{final_summary}")
         # Prepare data for DB
         db_data = {
             "transcript": transcript,
