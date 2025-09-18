@@ -75,12 +75,13 @@ def record_meeting_task(request_data: dict):
         transcript_text = "\n".join(
         [f"{seg['speaker_name']}: {seg['text']}" for seg in results["merged_transcript"]["transcript"]]
 )
+        logger.info(f"Transcript Text:\n{transcript_text}")
         final_summary = generate_langchain_summary(transcript_text)
 
         # Prepare data for DB
         db_data = {
             "transcript": transcript,
-            "summary": results.get("summary"),
+            "summary": final_summary,
             "captions": captions,
             "merged_transcript": results.get("merged_transcript") if "merged_transcript" in results else None,
             "user_id": request.user_id,
