@@ -24,12 +24,14 @@ celery_app = Celery(
 
 
 @celery_app.task
-def record_meeting_task(request_data: dict):
+def record_meeting_task(job_data: dict):
     """
     Celery task to record meeting + generate transcript + capture captions.
     """
     async def run():
-        request = MeetRequest(**request_data)
+        request_dict = job_data["request"]
+        user_id = job_data["user_id"]
+        request = MeetRequest(**request_dict)
 
         audio_file = "meeting_audio.wav"
         #captions_file = "captions.json"
@@ -86,7 +88,7 @@ def record_meeting_task(request_data: dict):
             "summary": final_summary,
             "captions": captions,
             "merged_transcript": results.get("merged_transcript") if "merged_transcript" in results else None,
-            "user_id": request.user_id,
+            "user_id": user_id,
             "meet_url": request.meet_url,  
             "audio_object": audio_object,
             "participants": speakers,   
@@ -107,7 +109,7 @@ def save_meeting_to_db(request: MeetRequest, results: dict):
             summary=results.get("summary"),
             captions=results.get("captions"),
             merged_transcript=results.get("merged_transcript"),
-            user_id=request.user_id,
+            user_id=results.get("user_id"),
             meet_url=request.meet_url,
             audio_url=results.get("audio_object")
         )

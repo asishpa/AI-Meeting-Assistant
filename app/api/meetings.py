@@ -16,9 +16,13 @@ router = APIRouter(prefix="/meetings", tags=["meetings"])
 
 @router.post("/join-and-record")
 async def join_and_record(request: MeetRequest, current_user=Depends(get_current_user)):
+
     payload = request.model_dump()
-    payload["user_id"] = current_user.user_id
-    job = record_meeting_task.delay(payload)
+    job_data = {
+        "request": payload,
+        "user_id": current_user.user_id  # Server-provided user ID
+    }
+    job = record_meeting_task.delay(job_data)
     return {"status": "queued", "job_id": job.id}
 
 # @router.get("/job-status/{job_id}")
