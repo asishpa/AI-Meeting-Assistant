@@ -11,10 +11,13 @@ from selenium.webdriver.support import expected_conditions as EC
 from app import db
 from app.models.meeting import Meeting
 from app.schemas.meet import MeetRequest, MeetingMetadataDetails
+
 import threading
 import json
 from typing import Dict, List, Any
 from datetime import datetime
+
+from app.schemas.transcript import TranscriptUtterance
 
 
 
@@ -447,18 +450,23 @@ def seconds_to_timestamp(seconds: float) -> str:
 #         logger.error(f" Failed to build speaker mapping: {e}")
 #         return {}
 
-def merge_transcript_with_captions(transcript: List[Dict[str, Any]], captions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def merge_transcript_with_captions(
+    transcript: List[TranscriptUtterance], 
+    captions: List[Dict[str, Any]]
+) -> Dict[str, Any]:
     merged = []
     for idx, (t, c) in enumerate(zip(transcript, captions), start=1):
         merged_segment = {
             "id": idx,
-            "start_time": t.get("start_time"),
-            "end_time": t.get("end_time"),
-            "speaker_label": t.get("speaker", "Unknown"),
+            "start_time": t.start_time,
+            "end_time": t.end_time,
+            "speaker_label": t.speaker or "Unknown",
             "speaker_name": c.get("speaker", "Unknown"),
-            "text": t.get("text", "").strip(),
-            "duration_seconds": parse_timestamp_to_seconds(t.get("end_time", "00:00")) -
-                               parse_timestamp_to_seconds(t.get("start_time", "00:00"))
+            "text": t.text.strip(),
+            "duration_seconds": (
+                parse_timestamp_to_seconds(t.end_time) -
+                parse_timestamp_to_seconds(t.start_time)
+            )
         }
         merged.append(merged_segment)
 
