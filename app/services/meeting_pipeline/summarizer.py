@@ -12,7 +12,7 @@ import os
 load_dotenv()
 
 # Initialize the Google Gemini Pro model
-model = ChatGoogleGenerativeAI(model="gemini-pro")
+model = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
 summary_parser = PydanticOutputParser(pydantic_object=MeetingSummary)
 
 ##Parser part
