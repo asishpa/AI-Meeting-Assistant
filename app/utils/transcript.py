@@ -8,7 +8,7 @@ from typing import List
 import json
 from app.schemas.transcript import TranscriptUtterance
 from app.core.errors import TranscriptionError
-from deepgram import Deepgram
+from deepgram import DeepgramClient
 
 logger = logging.getLogger(__name__)
 
@@ -28,16 +28,22 @@ def format_timestamp(ms: int) -> str:
     else:
         return f"{mins:02d}:{secs:02d}"
 def transcribe_file_json_deepgram(audio_file: str) -> List[TranscriptUtterance]:
+    """
+    Transcribe an audio file using Deepgram SDK v3.
+    Returns a list of TranscriptUtterance models with HH:MM:SS timestamps.
+    Raises TranscriptionError on failure.
+    """
     try:
-        logger.info(f" Transcribing audio file with Deepgram: {audio_file}")
+        logger.info(f"Transcribing audio file with Deepgram v3: {audio_file}")
 
         if not DEEPGRAM_API_KEY:
             raise TranscriptionError("Deepgram API key is missing", status_code=500)
 
-        dg_client = Deepgram(DEEPGRAM_API_KEY)
+        # Initialize Deepgram v3 client
+        dg_client = DeepgramClient(api_key=DEEPGRAM_API_KEY)
 
         with open(audio_file, "rb") as f:
-            source = {"buffer": f, "mimetype": "audio/wav"}
+            source = {"buffer": f.read(), "mimetype": "audio/wav"}
             options = {
                 "punctuate": True,
                 "diarize": True,
@@ -45,8 +51,9 @@ def transcribe_file_json_deepgram(audio_file: str) -> List[TranscriptUtterance]:
                 "detect_language": True,
             }
 
-            response = dg_client.transcription.sync_prerecorded(source, options)
+            response = dg_client.transcription.prerecorded(source, options)
 
+        # Check response structure
         if "results" not in response or "utterances" not in response["results"]:
             raise TranscriptionError("Invalid response from Deepgram", status_code=500)
 
@@ -60,7 +67,7 @@ def transcribe_file_json_deepgram(audio_file: str) -> List[TranscriptUtterance]:
     except TranscriptionError:
         raise
     except Exception as e:
-        logger.error(f"Failed to transcribe with Deepgram: {e}")
+        logger.error(f"Failed to transcribe with Deepgram v3: {e}")
         raise TranscriptionError(message=str(e), status_code=500)
 
 
