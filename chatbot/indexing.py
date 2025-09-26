@@ -1,4 +1,4 @@
-from langchain.embeddings import CohereEmbeddings
+from langchain_cohere import CohereEmbeddings
 from langchain.vectorstores import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.schema import Document
