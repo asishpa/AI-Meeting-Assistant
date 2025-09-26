@@ -28,11 +28,6 @@ def format_timestamp(ms: int) -> str:
     else:
         return f"{mins:02d}:{secs:02d}"
 def transcribe_file_json_deepgram(audio_file: str) -> List[TranscriptUtterance]:
-    """
-    Transcribe an audio file using Deepgram SDK v3.
-    Returns a list of TranscriptUtterance models with HH:MM:SS timestamps.
-    Raises TranscriptionError on failure.
-    """
     try:
         logger.info(f"Transcribing audio file with Deepgram v3: {audio_file}")
 
@@ -47,11 +42,12 @@ def transcribe_file_json_deepgram(audio_file: str) -> List[TranscriptUtterance]:
             options = {
                 "punctuate": True,
                 "diarize": True,
-                "utterances": True,   # use utterance grouping
+                "utterances": True,
                 "detect_language": True,
             }
 
-            response = dg_client.transcription.prerecorded(source, options)
+            # Use the appropriate method for transcription
+            response = dg_client.transcribe_file(source, options)
 
         # Check response structure
         if "results" not in response or "utterances" not in response["results"]:
