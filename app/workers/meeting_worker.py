@@ -80,8 +80,9 @@ def record_meeting_task(job_data: dict):
         transcript_text = "\n".join(
         [f"{seg['speaker_name']}: {seg['text']}" for seg in results["merged_transcript"]["transcript"]]
 )       
-        index_meeting(meeting_id=request.meet_url, transcript_text=transcript_text)
         logger.info(f"Transcript Text:\n{transcript_text}")
+        index_meeting(meeting_id=request.meet_url, transcript_text=transcript_text)
+        
         final_summary = generate_langchain_summary(transcript_text)
         logger.info(f"Final Summary:\n{final_summary}")
         # Prepare data for DB
