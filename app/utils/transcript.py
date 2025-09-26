@@ -8,13 +8,14 @@ from typing import List
 import json
 from app.schemas.transcript import TranscriptUtterance
 from app.core.errors import TranscriptionError
-
+from deepgram import Deepgram
 
 logger = logging.getLogger(__name__)
 
 
 load_dotenv()
 aai.settings.api_key = os.getenv("ASSEMBLYAI_API_KEY")
+DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 
 def format_timestamp(ms: int) -> str:
     """Convert milliseconds to HH:MM:SS string."""
@@ -26,9 +27,44 @@ def format_timestamp(ms: int) -> str:
         return f"{hrs:02d}:{mins:02d}:{secs:02d}"
     else:
         return f"{mins:02d}:{secs:02d}"
+def transcribe_file_json_deepgram(audio_file: str) -> List[TranscriptUtterance]:
+    try:
+        logger.info(f" Transcribing audio file with Deepgram: {audio_file}")
+
+        if not DEEPGRAM_API_KEY:
+            raise TranscriptionError("Deepgram API key is missing", status_code=500)
+
+        dg_client = Deepgram(DEEPGRAM_API_KEY)
+
+        with open(audio_file, "rb") as f:
+            source = {"buffer": f, "mimetype": "audio/wav"}
+            options = {
+                "punctuate": True,
+                "diarize": True,
+                "utterances": True,   # use utterance grouping
+                "detect_language": True,
+            }
+
+            response = dg_client.transcription.sync_prerecorded(source, options)
+
+        if "results" not in response or "utterances" not in response["results"]:
+            raise TranscriptionError("Invalid response from Deepgram", status_code=500)
+
+        dg_utterances = response["results"]["utterances"]
+
+        # Merge consecutive utterances with same speaker
+        utterances = merge_utterances(dg_utterances)
+
+        return utterances
+
+    except TranscriptionError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to transcribe with Deepgram: {e}")
+        raise TranscriptionError(message=str(e), status_code=500)
 
 
-def transcribe_file_json(audio_file: str) -> List[TranscriptUtterance]:
+def transcribe_file_json_aai(audio_file: str) -> List[TranscriptUtterance]:
     """
     Transcribe an audio file using AssemblyAI SDK with speaker labels.
     Returns a list of TranscriptUtterance models with HH:MM:SS timestamps.
@@ -67,3 +103,32 @@ def transcribe_file_json(audio_file: str) -> List[TranscriptUtterance]:
     except Exception as e:
         logger.error(f"Failed to transcribe audio: {e}")
         raise TranscriptionError(message=str(e), status_code=500)
+    
+def merge_utterances(utterances: List[dict]) -> List[TranscriptUtterance]:
+    """
+    Merge consecutive Deepgram utterances if the speaker is the same.
+    """
+    merged: List[TranscriptUtterance] = []
+
+    for utt in utterances:
+        start = int(utt["start"] * 1000)
+        end = int(utt["end"] * 1000)
+        speaker = f"spk_{utt.get('speaker', 0)}"
+        text = utt["transcript"]
+
+        if merged and merged[-1].speaker == speaker:
+            # Extend the last utterance
+            merged[-1].end_time = format_timestamp(end)
+            merged[-1].text += " " + text.strip()
+        else:
+            # Start a new utterance
+            merged.append(
+                TranscriptUtterance(
+                    start_time=format_timestamp(start),
+                    end_time=format_timestamp(end),
+                    text=text.strip(),
+                    speaker=speaker,
+                )
+            )
+
+    return merged

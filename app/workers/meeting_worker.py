@@ -1,7 +1,7 @@
 from celery import Celery
 import os
 from app.services.meetings.join_meeting import join_and_record_meeting, process_meeting_transcript
-from app.utils.transcript import transcribe_file_json
+from app.utils.transcript import transcribe_file_json_aai,transcribe_file_json_deepgram
 from app.schemas.meet import MeetRequest, MeetingProcessResult
 import asyncio
 from app.db.session import SessionLocal
@@ -11,6 +11,7 @@ from app.models.user import User
 from app.utils.s3 import upload_to_s3, S3_BUCKET
 import logging
 from app.services.meeting_pipeline.summarizer import generate_meeting_summary as generate_langchain_summary
+from chatbot.indexing import index_meeting
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ def record_meeting_task(job_data: dict):
             output_file=audio_file
         )
 
-        transcript = transcribe_file_json(recorded_file)
+        transcript = transcribe_file_json_deepgram(recorded_file)
         
 
         # Step 3: Upload audio to S3
@@ -78,7 +79,8 @@ def record_meeting_task(job_data: dict):
         logger.info(f"Speakers detected: {speakers}")
         transcript_text = "\n".join(
         [f"{seg['speaker_name']}: {seg['text']}" for seg in results["merged_transcript"]["transcript"]]
-)
+)       
+        index_meeting(meeting_id=request.meet_url, transcript_text=transcript_text)
         logger.info(f"Transcript Text:\n{transcript_text}")
         final_summary = generate_langchain_summary(transcript_text)
         logger.info(f"Final Summary:\n{final_summary}")
