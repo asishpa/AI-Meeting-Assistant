@@ -30,7 +30,7 @@ def format_timestamp(ms: int) -> str:
 def transcribe_file_json_deepgram(audio_file: str) -> List[TranscriptUtterance]:
     try:
         logger.info(f"Transcribing audio file with Deepgram v3: {audio_file}")
-
+        
         if not DEEPGRAM_API_KEY:
             raise TranscriptionError("Deepgram API key is missing", status_code=500)
 
@@ -39,24 +39,42 @@ def transcribe_file_json_deepgram(audio_file: str) -> List[TranscriptUtterance]:
 
         with open(audio_file, "rb") as f:
             source = {"buffer": f.read(), "mimetype": "audio/wav"}
+            
             options = {
                 "punctuate": True,
                 "diarize": True,
                 "utterances": True,
                 "detect_language": True,
+                "model": "nova-2",  # Specify model for better results
+                "smart_format": True,  # Enhanced formatting
             }
 
-            # Use the appropriate method for transcription
-            response = dg_client.transcribe_file(source, options)
+            # FIXED: Use the correct method for Deepgram v3
+            # The method is: listen.prerecorded.v(version).transcribe_file
+            response = dg_client.listen.prerecorded.v("1").transcribe_file(source, options)
 
-        # Check response structure
-        if "results" not in response or "utterances" not in response["results"]:
+        # Check if response has the expected structure
+        if not hasattr(response, 'results') or not response.results:
             raise TranscriptionError("Invalid response from Deepgram", status_code=500)
 
-        dg_utterances = response["results"]["utterances"]
+        # Access utterances from the response
+        if not hasattr(response.results, 'utterances') or not response.results.utterances:
+            raise TranscriptionError("No utterances found in Deepgram response", status_code=500)
+
+        dg_utterances = response.results.utterances
+
+        # Convert to list of dicts for merge_utterances function
+        utterance_dicts = []
+        for utt in dg_utterances:
+            utterance_dicts.append({
+                "start": utt.start,
+                "end": utt.end,
+                "transcript": utt.transcript,
+                "speaker": getattr(utt, 'speaker', 0)  # Some versions might not have speaker
+            })
 
         # Merge consecutive utterances with same speaker
-        utterances = merge_utterances(dg_utterances)
+        utterances = merge_utterances(utterance_dicts)
 
         return utterances
 
