@@ -47,11 +47,11 @@ def transcribe_file_json_deepgram(audio_file: str) -> List[TranscriptUtterance]:
                 "detect_language": True,
                 "model": "nova-2",  # Specify model for better results
                 "smart_format": True,  # Enhanced formatting
-            }
 
-            # FIXED: Use the correct method for Deepgram v3
-            # The method is: listen.prerecorded.v(version).transcribe_file
+            }
             response = dg_client.listen.prerecorded.v("1").transcribe_file(source, options)
+            logger.error(f"Deepgram raw response: {response}")
+
 
         # Check if response has the expected structure
         if not hasattr(response, 'results') or not response.results:
