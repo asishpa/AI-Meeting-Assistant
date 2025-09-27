@@ -45,7 +45,7 @@ def transcribe_file_json_deepgram(audio_file: str) -> List[TranscriptUtterance]:
                 "diarize": True,
                 "utterances": True,
                 "detect_language": True,
-                "model": "nova-2",  # Specify model for better results
+                "model": "nova-3",  # Specify model for better results
                 "smart_format": True,  # Enhanced formatting
 
             }
