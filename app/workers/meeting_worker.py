@@ -34,8 +34,8 @@ def record_meeting_task(job_data: dict):
         request_dict = job_data["request"]
         user_id = job_data["user_id"]
         request = MeetRequest(**request_dict)
-
-        audio_file = "meeting_audio.wav"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        audio_file = f"meeting_{request.meet_url}_{user_id}_{timestamp}.wav"
         #captions_file = "captions.json"
         #transcript_file = "meeting_transcript.json"
         #output_dir = "."  # where merged transcript + summary will be saved
