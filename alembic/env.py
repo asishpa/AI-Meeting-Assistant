@@ -25,6 +25,9 @@ def run_migrations_offline():
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_schemas=True,          # <--- add this
+        compare_type=True,             # <--- detect type changes
+        compare_server_default=True,   # <--- detect default changes
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -36,7 +39,13 @@ def run_migrations_online():
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            include_schemas=True,          # <--- add this
+            compare_type=True,             # <--- detect type changes
+            compare_server_default=True,   # <--- detect default changes
+        )
         with context.begin_transaction():
             context.run_migrations()
 
