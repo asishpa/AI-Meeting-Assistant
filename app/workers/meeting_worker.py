@@ -103,8 +103,10 @@ def record_meeting_task(job_data: dict):
             "audio_object": audio_object,
             "participants": speakers,   
         }
-        save_meeting_to_db(request, db_data)
+        # Inside async def run():
+        await save_meeting_to_db(request, db_data)
         shutil.rmtree(meeting_folder, ignore_errors=True)
+
     return asyncio.run(run())
 
 async def save_meeting_to_db(request: MeetRequest, results: dict):
