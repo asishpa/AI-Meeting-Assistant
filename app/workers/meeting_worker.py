@@ -115,7 +115,7 @@ def save_meeting_to_db(request: MeetRequest, results: dict):
             merged_transcript=results.get("merged_transcript"),
             user_id=results.get("user_id"),
             meet_url=request.meet_url,
-            audio_url=results.get("audio_object")
+            audio_object=results.get("audio_object") 
         )
         db.add(meeting)
         db.commit()
