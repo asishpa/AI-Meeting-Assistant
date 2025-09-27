@@ -1,19 +1,18 @@
 from datetime import datetime, timezone
 from celery import Celery
 import os
+import logging
+import shutil
+from asgiref.sync import async_to_sync
+
 from app.services.meetings.join_meeting import join_and_record_meeting, process_meeting_transcript
-from app.utils.transcript import transcribe_file_json_aai,transcribe_file_json_deepgram
-from app.schemas.meet import MeetRequest, MeetingProcessResult
-import asyncio
+from app.utils.transcript import transcribe_file_json_deepgram
+from app.schemas.meet import MeetRequest
 from app.db.session import SessionLocal
 from app.models.meeting import Meeting
-from app.models.user import User
-#from app.utils.minio_helper import upload_to_minio
 from app.utils.s3 import upload_to_s3, S3_BUCKET
-import logging
 from app.services.meeting_pipeline.summarizer import generate_meeting_summary as generate_langchain_summary
 from chatbot.indexing import index_meeting
-import shutil
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,83 +30,79 @@ BASE_AUDIO_DIR = "/tmp/meetings"
 def record_meeting_task(job_data: dict):
     """
     Celery task to record meeting + generate transcript + capture captions.
+    Runs async code safely using async_to_sync.
     """
-    async def run():
-        request_dict = job_data["request"]
-        user_id = job_data["user_id"]
-        request = MeetRequest(**request_dict)
+    async_to_sync(run_meeting_task)(job_data)
 
-        timestamp = datetime.now().strftime("%Y%m%dT%H%M%S")
-        meeting_id = request.meet_url.replace("https://", "").replace("/", "_")  # sanitize
-        meeting_folder = os.path.join(BASE_AUDIO_DIR, str(user_id), meeting_id, timestamp)
-        os.makedirs(meeting_folder, exist_ok=True)
 
-        audio_file = os.path.join(meeting_folder, "meeting_audio.wav")
-        #captions_file = "captions.json"
-        #transcript_file = "meeting_transcript.json"
-        #output_dir = "."  # where merged transcript + summary will be saved
+async def run_meeting_task(job_data: dict):
+    request_dict = job_data["request"]
+    user_id = job_data["user_id"]
+    request = MeetRequest(**request_dict)
 
-        #  Join meeting, record audio + captions
+    timestamp = datetime.now().strftime("%Y%m%dT%H%M%S")
+    meeting_id = request.meet_url.replace("https://", "").replace("/", "_")  # sanitize
+    meeting_folder = os.path.join(BASE_AUDIO_DIR, str(user_id), meeting_id, timestamp)
+    os.makedirs(meeting_folder, exist_ok=True)
 
-        recorded_file, captions = join_and_record_meeting(
-            request,
-            record_seconds=300,
-            output_file=audio_file
-        )
+    audio_file = os.path.join(meeting_folder, "meeting_audio.wav")
 
-        transcript = transcribe_file_json_deepgram(recorded_file)
-        
+    # Step 1 — Join meeting, record audio + captions
+    recorded_file, captions = join_and_record_meeting(
+        request,
+        record_seconds=300,
+        output_file=audio_file
+    )
 
-       # 3. Upload to S3 with structured key
-        s3_key = f"meetings/{user_id}/{meeting_id}/{timestamp}/meeting_audio.wav"
-        s3_response = upload_to_s3(recorded_file, S3_BUCKET, s3_key)
+    # Step 2 — Transcribe audio
+    transcript = transcribe_file_json_deepgram(recorded_file)
 
-        audio_object = None
-        if s3_response.status == "success":
-            audio_object = s3_key
-            logger.info(f"Uploaded to S3: {audio_object}")
-        else:
-            logger.error(f"S3 upload failed: {s3_response.detail}")
+    # Step 3 — Upload audio to S3
+    s3_key = f"meetings/{user_id}/{meeting_id}/{timestamp}/meeting_audio.wav"
+    s3_response = upload_to_s3(recorded_file, S3_BUCKET, s3_key)
 
-        # minio_object = os.path.basename(recorded_file)
-        # minio_response = upload_to_minio(recorded_file, minio_bucket, minio_object)
-        # if minio_response.status == "success":
-        #     logger.info(f"Successfully uploaded {minio_object} to MinIO bucket {minio_bucket}.")
-        # else:
-        #     logger.error(f"Failed to upload {minio_object} to MinIO: {minio_response.detail}")
-        # Optionally, handle minio_response (log, error handling, etc.)
+    audio_object = None
+    if s3_response.status == "success":
+        audio_object = s3_key
+        logger.info(f"Uploaded to S3: {audio_object}")
+    else:
+        logger.error(f"S3 upload failed: {s3_response.detail}")
 
-        #  Process the meeting: transcribe, merge, generate summary
-        results = process_meeting_transcript(
-            transcript=transcript,
-            captions=captions
-        )
-        speakers = list({seg["speaker_name"] for seg in results["merged_transcript"]["transcript"]})
-        logger.info(f"Speakers detected: {speakers}")
-        transcript_text = "\n".join(
+    # Step 4 — Process transcript and generate summary
+    results = process_meeting_transcript(
+        transcript=transcript,
+        captions=captions
+    )
+
+    speakers = list({seg["speaker_name"] for seg in results["merged_transcript"]["transcript"]})
+    logger.info(f"Speakers detected: {speakers}")
+
+    transcript_text = "\n".join(
         [f"{seg['speaker_name']}: {seg['text']}" for seg in results["merged_transcript"]["transcript"]]
-)       
-        logger.info(f"Transcript Text:\n{transcript_text}")
-        index_meeting(meeting_id=request.meet_url, transcript_text=transcript_text)
-        
-        final_summary = generate_langchain_summary(transcript_text)
-        logger.info(f"Final Summary:\n{final_summary}")
-        # Prepare data for DB
-        db_data = {
-            "transcript": transcript,
-            "summary": final_summary,
-            "captions": captions,
-            "merged_transcript": results.get("merged_transcript") if "merged_transcript" in results else None,
-            "user_id": user_id,
-            "meet_url": request.meet_url,  
-            "audio_object": audio_object,
-            "participants": speakers,   
-        }
-        # Inside async def run():
-        await save_meeting_to_db(request, db_data)
-        shutil.rmtree(meeting_folder, ignore_errors=True)
+    )
+    logger.info(f"Transcript Text:\n{transcript_text}")
 
-    return asyncio.run(run())
+    index_meeting(meeting_id=request.meet_url, transcript_text=transcript_text)
+
+    final_summary = generate_langchain_summary(transcript_text)
+    logger.info(f"Final Summary:\n{final_summary}")
+
+    # Step 5 — Save meeting to DB
+    db_data = {
+        "transcript": transcript,
+        "summary": final_summary,
+        "captions": captions,
+        "merged_transcript": results.get("merged_transcript"),
+        "user_id": user_id,
+        "meet_url": request.meet_url,
+        "audio_object": audio_object,
+        "participants": speakers,
+    }
+    await save_meeting_to_db(request, db_data)
+
+    # Step 6 — Clean up
+    shutil.rmtree(meeting_folder, ignore_errors=True)
+
 
 async def save_meeting_to_db(request: MeetRequest, results: dict):
     async with SessionLocal() as db:
@@ -127,5 +122,3 @@ async def save_meeting_to_db(request: MeetRequest, results: dict):
             db.add(meeting)
         await db.refresh(meeting)
     return meeting
-
-
