@@ -2,7 +2,7 @@
 from chatbot.prompt_template import prompt
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.chains import create_stuff_documents_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
 from chatbot.retriever import get_retriever
 
 
