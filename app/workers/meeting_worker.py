@@ -110,13 +110,13 @@ def record_meeting_task(job_data: dict):
     return asyncio.run(run())
 
 async def save_meeting_to_db(request: MeetRequest, results: dict):
-    async with SessionLocal() as db:   
-        async with db.begin():         
+    async with SessionLocal() as db:
+        async with db.begin():
             meeting = Meeting(
                 title="Meeting",
                 participants=results.get("participants"),
                 start_time=datetime.now(timezone.utc),
-                transcript=results.get("transcript"),
+                transcript=[utt.dict() for utt in results.get("transcript", [])],
                 summary=results.get("summary"),
                 captions=results.get("captions"),
                 merged_transcript=results.get("merged_transcript"),
@@ -125,7 +125,7 @@ async def save_meeting_to_db(request: MeetRequest, results: dict):
                 audio_object=results.get("audio_object")
             )
             db.add(meeting)
-     
         await db.refresh(meeting)
     return meeting
+
 
