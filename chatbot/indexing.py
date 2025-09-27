@@ -1,5 +1,5 @@
 from langchain_cohere import CohereEmbeddings
-from langchain.vectorstores import Chroma
+from langchain_community.vectorstores import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.schema import Document
 from dotenv import load_dotenv
@@ -16,7 +16,7 @@ if not COHERE_API_KEY:
     raise ValueError("COHERE_API_KEY not found in environment variables")
 
 # Initialize Cohere embeddings
-embeddings = CohereEmbeddings(model="large", api_key=COHERE_API_KEY)
+embeddings = CohereEmbeddings(model="large")
 
 def index_meeting(meeting_id: str, transcript_text: str, metadata: dict = None):
     # Split transcript into chunks
