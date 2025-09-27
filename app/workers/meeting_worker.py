@@ -13,6 +13,7 @@ from app.utils.s3 import upload_to_s3, S3_BUCKET
 import logging
 from app.services.meeting_pipeline.summarizer import generate_meeting_summary as generate_langchain_summary
 from chatbot.indexing import index_meeting
+import shutil
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -23,6 +24,7 @@ celery_app = Celery(
     broker="redis://localhost:6379/0",
     backend="redis://localhost:6379/0"
 )
+BASE_AUDIO_DIR = "/tmp/meetings"
 
 
 @celery_app.task
@@ -34,8 +36,13 @@ def record_meeting_task(job_data: dict):
         request_dict = job_data["request"]
         user_id = job_data["user_id"]
         request = MeetRequest(**request_dict)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        audio_file = f"meeting_{request.meet_url}_{user_id}_{timestamp}.wav"
+
+        timestamp = datetime.now().strftime("%Y%m%dT%H%M%S")
+        meeting_id = request.meet_url.replace("https://", "").replace("/", "_")  # sanitize
+        meeting_folder = os.path.join(BASE_AUDIO_DIR, str(user_id), meeting_id, timestamp)
+        os.makedirs(meeting_folder, exist_ok=True)
+
+        audio_file = os.path.join(meeting_folder, "meeting_audio.wav")
         #captions_file = "captions.json"
         #transcript_file = "meeting_transcript.json"
         #output_dir = "."  # where merged transcript + summary will be saved
@@ -51,14 +58,13 @@ def record_meeting_task(job_data: dict):
         transcript = transcribe_file_json_deepgram(recorded_file)
         
 
-        # Step 3: Upload audio to S3
-        s3_object = os.path.basename(recorded_file)
-        s3_response = upload_to_s3(recorded_file, S3_BUCKET, s3_object)
+       # 3. Upload to S3 with structured key
+        s3_key = f"meetings/{user_id}/{meeting_id}/{timestamp}/meeting_audio.wav"
+        s3_response = upload_to_s3(recorded_file, S3_BUCKET, s3_key)
 
         audio_object = None
-        audio_object = None
         if s3_response.status == "success":
-            audio_object = s3_response.object_name
+            audio_object = s3_key
             logger.info(f"Uploaded to S3: {audio_object}")
         else:
             logger.error(f"S3 upload failed: {s3_response.detail}")
@@ -98,6 +104,7 @@ def record_meeting_task(job_data: dict):
             "participants": speakers,   
         }
         save_meeting_to_db(request, db_data)
+        shutil.rmtree(meeting_folder, ignore_errors=True)
     return asyncio.run(run())
 
 def save_meeting_to_db(request: MeetRequest, results: dict):
@@ -115,7 +122,7 @@ def save_meeting_to_db(request: MeetRequest, results: dict):
             merged_transcript=results.get("merged_transcript"),
             user_id=results.get("user_id"),
             meet_url=request.meet_url,
-            audio_object=results.get("audio_object") 
+            audio_url=results.get("audio_object")
         )
         db.add(meeting)
         db.commit()
