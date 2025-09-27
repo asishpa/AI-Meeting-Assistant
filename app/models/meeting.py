@@ -1,6 +1,6 @@
 from app.db.base import Base
 import uuid
-from sqlalchemy import Column, ForeignKey, String, Text, DateTime, Integer, func
+from sqlalchemy import Column, Date, ForeignKey, String, Text, DateTime, Integer, func
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime
 from sqlalchemy.dialects.postgresql import JSON, JSONB
@@ -25,3 +25,4 @@ class Meeting(Base):
     
     audio_object = Column(String, nullable=True)    
     user = relationship("User", back_populates="meetings")
+    meeting_date = Column(Date, server_default=func.current_date())

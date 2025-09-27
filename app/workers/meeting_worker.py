@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from celery import Celery
 import os
 from app.services.meetings.join_meeting import join_and_record_meeting, process_meeting_transcript
@@ -107,7 +108,7 @@ def save_meeting_to_db(request: MeetRequest, results: dict):
         meeting = Meeting(
             title="Meeting",
             participants=results.get("participants"),
-            start_time=request.start_time,
+            start_time=datetime.now(timezone.utc),
             transcript=results.get("transcript"),
             summary=results.get("summary"),
             captions=results.get("captions"),
