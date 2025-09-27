@@ -107,25 +107,23 @@ def record_meeting_task(job_data: dict):
         shutil.rmtree(meeting_folder, ignore_errors=True)
     return asyncio.run(run())
 
-def save_meeting_to_db(request: MeetRequest, results: dict):
-    
-    db = SessionLocal()
-    try:
-        # Create meeting record
-        meeting = Meeting(
-            title="Meeting",
-            participants=results.get("participants"),
-            start_time=datetime.now(timezone.utc),
-            transcript=results.get("transcript"),
-            summary=results.get("summary"),
-            captions=results.get("captions"),
-            merged_transcript=results.get("merged_transcript"),
-            user_id=results.get("user_id"),
-            meet_url=request.meet_url,
-            audio_object=results.get("audio_object")
-        )
-        db.add(meeting)
-        db.commit()
-        db.refresh(meeting)
-    finally:
-        db.close()
+async def save_meeting_to_db(request: MeetRequest, results: dict):
+    async with SessionLocal() as db:   
+        async with db.begin():         
+            meeting = Meeting(
+                title="Meeting",
+                participants=results.get("participants"),
+                start_time=datetime.now(timezone.utc),
+                transcript=results.get("transcript"),
+                summary=results.get("summary"),
+                captions=results.get("captions"),
+                merged_transcript=results.get("merged_transcript"),
+                user_id=results.get("user_id"),
+                meet_url=request.meet_url,
+                audio_object=results.get("audio_object")
+            )
+            db.add(meeting)
+     
+        await db.refresh(meeting)
+    return meeting
+
