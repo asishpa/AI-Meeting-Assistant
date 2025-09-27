@@ -44,7 +44,7 @@ def transcribe_file_json_deepgram(audio_file: str) -> List[TranscriptUtterance]:
                 "punctuate": True,
                 "diarize": True,
                 "utterances": True,
-                "detect_language": True,
+                "language": "en-IN",
                 "model": "nova-3",  # Specify model for better results
                 "smart_format": True,  # Enhanced formatting
 
