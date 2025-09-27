@@ -49,7 +49,7 @@ def transcribe_file_json_deepgram(audio_file: str) -> List[TranscriptUtterance]:
                 "smart_format": True,  # Enhanced formatting
 
             }
-            response = dg_client.listen.prerecorded.v("1").transcribe_file(source, options)
+            response = dg_client.listen.prerecorded.v("1").transcribe_file(source, options,timeout=300)
             logger.error(f"Deepgram raw response: {response}")
 
 
