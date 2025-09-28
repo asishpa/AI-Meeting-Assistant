@@ -1,5 +1,5 @@
 from langchain_cohere import CohereEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.schema import Document
 from dotenv import load_dotenv
