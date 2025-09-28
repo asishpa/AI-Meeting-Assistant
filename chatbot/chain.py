@@ -16,6 +16,6 @@ def get_meeting_qa_chain(meeting_id: str):
 
     return (
         retriever
-        | (lambda docs: {"context": docs})   # wrap retriever output into dict
+        | (lambda question: {"question": question, "context": retriever.invoke(question)})   # wrap retriever output into dict
         | combine_docs_chain
     )
