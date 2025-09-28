@@ -11,7 +11,7 @@ router = APIRouter()
 async def chat(payload: ChatRequest):
     chain = get_meeting_qa_chain(payload.meeting_id)
     async def stream_response():
-        async for event in chain.astream({"input": payload.question}):
+        async for event in chain.astream(payload.question):
             if "answer" in event:
                 yield event["answer"]
     return StreamingResponse(stream_response(), media_type="text/event-stream")
