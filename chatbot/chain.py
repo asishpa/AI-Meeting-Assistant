@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from chatbot.retriever import get_retriever
-
+from langchain_core.runnables import RunnablePassthrough
 
 load_dotenv()
 
@@ -15,7 +15,9 @@ def get_meeting_qa_chain(meeting_id: str):
     combine_docs_chain = create_stuff_documents_chain(model, prompt)
 
     return (
-        retriever
-        | (lambda question: {"question": question, "context": retriever.invoke(question)})   # wrap retriever output into dict
+        {
+            "question": RunnablePassthrough(),  # Passes the original question through
+            "context": retriever               # Retriever processes the question
+        }
         | combine_docs_chain
     )
