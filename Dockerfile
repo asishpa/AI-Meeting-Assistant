@@ -20,8 +20,6 @@ WORKDIR /app
 # Copy installed packages from builder
 COPY --from=builder /install /usr/local
 
-# Install browser binaries (Playwright itself already installed via requirements.txt)
-RUN playwright install --with-deps chromium
 
 # Copy source code
 COPY . .
