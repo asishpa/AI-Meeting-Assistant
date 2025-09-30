@@ -1,4 +1,5 @@
 
+import logging
 from chatbot.prompt_template import prompt
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -7,7 +8,9 @@ from chatbot.retriever import get_retriever
 from langchain_core.runnables import RunnablePassthrough
 
 load_dotenv()
-
+# Configure logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s")
 model = ChatGoogleGenerativeAI(model="gemini-2.5-flash",streaming=True)
 
 def get_meeting_qa_chain(meeting_id: str):

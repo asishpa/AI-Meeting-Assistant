@@ -16,7 +16,11 @@ async def signup_error_handler(request: Request, exc: SignupError):
         status_code=exc.status_code,
         content=exc.detail
     )
-
+async def meeting_error_handler(request: Request, exc: MeetingError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=exc.detail
+    )
 async def generic_error_handler(request: Request, exc: Exception):
     logger.exception(f"Unexpected error: {exc}")
     return JSONResponse(

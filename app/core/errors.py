@@ -9,6 +9,9 @@ class ErrorCode(str, Enum):
     EMAIL_ALREADY_EXISTS = "AUTH_003"
     UNAUTHENTICATED_USER = "AUTH_004"
     TRANSCRIPTION_FAILED = "TRANSCRIPTION_001"
+    MEETING_NOT_FOUND = "MEETING_001"
+    MEETING_ACCESS_DENIED = "MEETING_002"
+    NO_MEETINGS_FOUND = "MEETING_003"
 
 class SignupError(HTTPException):
     """ Custom exception in case of signup failure """
@@ -50,6 +53,22 @@ class AuthError(HTTPException):
             "message": message,
             "details": self.details
         })
+class MeetingError(HTTPException):
+    """ Custom exception for meeting-related failures """
+    def __init__(
+            self,
+            error_code: ErrorCode,
+            message: str,
+            status_code: int = status.HTTP_400_BAD_REQUEST,
+            details: Optional[Dict[str, Any]] = None
+    ):
+        self.error_code = error_code
+        self.details = details or {}
+        super().__init__(status_code=status_code, detail={
+            "error_code": self.error_code,
+            "message": message,
+            "details": self.details
+        })
 # Auth error messages for authentication failures
 class AuthErrorMessages:
     """ Error messages for authentication failures """
@@ -63,6 +82,11 @@ class SignupErrorMessages:
     USER_NOT_FOUND = "User not found"
     INVALID_CREDENTIALS = "Invalid credentials"
     EMAIL_ALREADY_EXISTS = "Email already exists"
+class MeetingErrorMessages:
+    """ Error messages for meeting-related failures """
+    MEETING_NOT_FOUND = "Meeting not found"
+    MEETING_ACCESS_DENIED = "Access to the meeting is denied"
+    NO_MEETINGS_FOUND = "No meetings found for the user"
 # convenience functions for common signup errors
 def raise_invalid_credentials():
     error_info = SignupErrorMessages.INVALID_CREDENTIALS

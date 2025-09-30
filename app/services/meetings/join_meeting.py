@@ -568,11 +568,3 @@ def process_meeting_transcript( transcript: List[Dict[str, Any]], captions: List
     except Exception as e:
         logger.error(f" Processing failed: {e}")
         return {"success": False, "error": str(e)}
-def get_user_meetings(user_id: str, db_session) -> List[Dict[str, Any]]:
-
- meetings = (
-        db.query(Meeting.id, Meeting.title)
-        .filter(Meeting.user_id == user_id)
-        .all()
-    )
- return [MeetingMetadataDetails.model_validate(m) for m in meetings]

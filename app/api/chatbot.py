@@ -20,13 +20,9 @@ async def chat(payload: ChatRequest):
         logger.debug("Starting stream_response generator")
         async for event in chain.astream(payload.question):
             logger.debug(f"Got event from chain.astream: {event}")
-            if "answer" in event:
-                answer = event["answer"]
-                logger.debug(f"Yielding answer: {answer}")
-                # Use proper SSE format to flush to client
-                yield f"data: {answer}\n\n"
-            else:
-                logger.debug("Event has no 'answer' key")
+            # Event is directly a string, not a dict
+            logger.debug(f"Yielding event: {event}")
+            yield f"data: {event}\n\n"
         logger.debug("Finished streaming")
 
     return StreamingResponse(stream_response(), media_type="text/event-stream")
