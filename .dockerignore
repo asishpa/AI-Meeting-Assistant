@@ -1,0 +1,31 @@
+# Ignore Python cache and venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+.env
+venv/
+.venv/
+
+# Ignore git and IDE/editor files
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore logs and local files
+*.log
+*.out
+*.pid
+*.bak
+*.swp
+
+# Ignore test data or large datasets
+tests/
+data/
