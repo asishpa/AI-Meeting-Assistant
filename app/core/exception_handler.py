@@ -1,6 +1,6 @@
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from app.core.errors import SignupError, TranscriptionError
+from app.core.errors import MeetingError, SignupError, TranscriptionError
 async def transcription_error_handler(request: Request, exc: TranscriptionError):
     logger.error(f"Transcription error: {exc}")
     return JSONResponse(
