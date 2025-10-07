@@ -262,7 +262,7 @@ def join_and_record_meeting(request: MeetRequest, record_seconds: int = 60, outp
             start_time = time.time()
             caption_thread = threading.Thread(
                 target=scrape_captions_json,
-                args=(driver, stop_scraping, 1.5, 1.5, start_time, shared_captions, bot, MP3_FILE),
+                args=(driver, stop_scraping, 1.5, 1.5, start_time, shared_captions, bot),
                 daemon=True
             )
             caption_thread.start()
