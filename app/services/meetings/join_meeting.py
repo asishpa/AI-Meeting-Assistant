@@ -98,7 +98,16 @@ def format_timestamp(seconds: float) -> str:
     secs = int(seconds % 60)
     return f"{hrs:02d}:{mins:02d}:{secs:02d}" if hrs > 0 else f"{mins:02d}:{secs:02d}"
 
-def scrape_captions_json(driver, stop_event=None, interval=1.5, stable_time=1.5, start_time=None, shared_list=None, bot=None, mp3_file_path=None):
+def scrape_captions_json(
+    driver,
+    stop_event=None,
+    interval=1.5,
+    stable_time=1.5,
+    start_time=None,
+    shared_list=None,
+    bot=None,
+    mp3_file_path=None
+):
     finalized_captions = [] if shared_list is None else shared_list
     active_captions = {}
     last_finalized_text = {}
@@ -135,26 +144,47 @@ def scrape_captions_json(driver, stop_event=None, interval=1.5, stable_time=1.5,
                 if speaker not in active_captions:
                     active_captions[speaker] = {"text": text, "last_seen": current_time, "finalized": False}
                 else:
+                    # Caption changed -> speaker is still talking
                     if active_captions[speaker]["text"] != text:
                         active_captions[speaker]["text"] = text
                         active_captions[speaker]["last_seen"] = current_time
                         active_captions[speaker]["finalized"] = False
+
+                        #  Someone started talking again while bot is speaking → stop bot
+                        if bot and getattr(bot, "bot_playing", False):
+                            bot.stop_mp3()
+
+                    # Caption stable for enough time -> finalize it
                     else:
                         if not active_captions[speaker]["finalized"] and current_time - active_captions[speaker]["last_seen"] > stable_time:
                             prev_text = last_finalized_text.get(speaker, "")
-                            new_text = text[len(prev_text):].lstrip(". ").strip() if prev_text and text.startswith(prev_text) else text
+                            new_text = (
+                                text[len(prev_text):].lstrip(". ").strip()
+                                if prev_text and text.startswith(prev_text)
+                                else text
+                            )
                             if new_text:
                                 elapsed = current_time - start_time
-                                finalized_captions.append({"speaker": speaker, "text": new_text, "timestamp": format_timestamp(elapsed)})
+                                finalized_captions.append({
+                                    "speaker": speaker,
+                                    "text": new_text,
+                                    "timestamp": format_timestamp(elapsed)
+                                })
                                 last_finalized_text[speaker] = text
+
                                 if TRIGGER_PHRASE in new_text.lower() and bot and mp3_file_path:
-                                    bot.play_mp3_file(mp3_file_path)
+                                    if not bot.bot_playing:  # prevent overlap
+                                        bot.play_mp3_file(mp3_file_path)
+
                             active_captions[speaker]["finalized"] = True
 
-        except Exception:
-            pass
+        except Exception as e:
+            # Optional debug: logger.warning(f"Caption scraping error: {e}")
+            logger.info(f" Caption scrape err: {e}")
         time.sleep(interval)
+
     return finalized_captions
+
 
 def join_and_record_meeting(request: MeetRequest, record_seconds: int = 60, output_file: str = "meeting_audio.wav"):
     record_seconds = int(record_seconds)

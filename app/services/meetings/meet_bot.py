@@ -10,6 +10,8 @@ class MeetBot:
             sleep_time_between_chunks_seconds=0.1,
             output_sample_rate=self.SAMPLE_RATE
         )
+        self.bot_playing = False
+        self.lock = threading.Lock()
 
     def send_raw_audio(self, chunk_bytes, sample_rate):
         pcm_array = np.frombuffer(chunk_bytes, dtype=np.int16).tolist()
@@ -23,7 +25,16 @@ class MeetBot:
         with open(filepath, "rb") as f:
             mp3_data = f.read()
         pcm_data = self.audio_manager.mp3_to_pcm(mp3_data, sample_rate=self.SAMPLE_RATE)
-        self.audio_manager._play_audio_chunks(pcm_data, chunk_size=self.SAMPLE_RATE * 2)
+        with self.lock:
+            self.bot_playing = True
+        self.audio_manager.play_audio(pcm_data, chunk_size=self.SAMPLE_RATE * 2)
+
+    def stop_mp3(self):
+        with self.lock:
+            if self.bot_playing:
+                self.audio_manager.stop()
+                self.bot_playing = False
 
     def stop(self):
+        self.stop_mp3()
         self.audio_manager.cleanup()
