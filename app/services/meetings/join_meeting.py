@@ -1,3 +1,4 @@
+# join_and_record_meeting.py
 import os
 import time
 import logging
@@ -8,25 +9,17 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from app import db
-from app.models.meeting import Meeting
-from app.schemas.meet import MeetRequest, MeetingMetadataDetails
+from app.schemas.meet import MeetRequest,MeetingMetadataDetails
 
 import threading
-import json
 from typing import Dict, List, Any
 from datetime import datetime
-
 from app.schemas.transcript import TranscriptUtterance
-
-
+from .meet_bot import MeetBot  # <-- Import your MeetBot class
 
 logger = logging.getLogger(__name__)
 
 def setup_chrome():
-    """
-    Setup Chrome with media permissions.
-    """
     profile_dir = os.path.join(os.getcwd(), "chrome_profile")
     os.makedirs(profile_dir, exist_ok=True)
     
@@ -41,211 +34,137 @@ def setup_chrome():
         "profile.default_content_setting_values.notifications": 1
     })
     chrome_options.add_argument('--autoplay-policy=no-user-gesture-required')
-    # chrome_options.add_argument('--headless=new')  # Uncomment for headless mode
-    
-    # Stability options
+    # chrome_options.add_argument('--headless=new')
     chrome_options.add_argument('--no-sandbox')
     chrome_options.add_argument('--disable-dev-shm-usage')
     chrome_options.add_argument('--disable-gpu')
     chrome_options.add_argument('--disable-extensions')
 
     service = Service("/usr/bin/chromedriver")
-    return webdriver.Chrome(service=service, options=chrome_options)
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    
+    try:
+        js_file_path = os.path.join(os.getcwd(), "js", "botOutputManager.js")
+        if not os.path.exists(js_file_path):
+            raise FileNotFoundError(f"botOutputManager.js not found at {js_file_path}")
 
+        with open(js_file_path, "r", encoding="utf-8") as f:
+            bot_manager_code = f.read()
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": bot_manager_code})
+        logger.info(" botOutputManager.js preloaded into Chrome (auto-inject every page).")
+    except Exception as e:
+        logger.error(f" Failed to inject botOutputManager.js: {e}")
+    
+    return driver
 
 def start_ffmpeg(output_file="meeting_audio.wav"):
-    """Record audio from PulseAudio virtual sink"""
     return subprocess.Popen([
         "ffmpeg",
-        "-y",                       # overwrite
+        "-y",
         "-f", "pulse",
-        "-i", "meet_sink.monitor",  # PulseAudio monitor
+        "-i", "meet_sink.monitor",
         "-ac", "1",
         "-ar", "16000",
         output_file
     ])
 
-
 def move_chrome_to_sink(sink_name="meet_sink", retries=15, delay=2):
-    """
-    Keep retrying to find Chrome/Chromium/Meet audio stream and move it to the virtual sink.
-    """
-    try:
-        for attempt in range(retries):
-            inputs = subprocess.check_output(["pactl", "list", "sink-inputs"]).decode()
-            current_index = None
-            found = False
+    for attempt in range(retries):
+        inputs = subprocess.check_output(["pactl", "list", "sink-inputs"]).decode()
+        current_index = None
+        found = False
+        for line in inputs.splitlines():
+            line = line.strip()
+            if line.startswith("Sink Input #"):
+                current_index = line.split("#")[1]
+            if ("application.name = \"Google Chrome\"" in line or
+                "application.name = \"Chromium\"" in line or
+                "application.process.binary = \"chrome\"" in line or
+                "media.name = \"WebRTC Voice\"" in line):
+                if current_index:
+                    subprocess.call(["pactl", "move-sink-input", current_index, sink_name])
+                    logger.info(f" Moved Chrome/Meet stream {current_index} to {sink_name}")
+                    found = True
+                    break
+        if found:
+            return True
+        time.sleep(delay)
+    logger.warning(" No Chrome/Meet sink-input appeared")
+    return False
 
-            for line in inputs.splitlines():
-                line = line.strip()
-                if line.startswith("Sink Input #"):
-                    current_index = line.split("#")[1]
-                # Match Chrome, Chromium, or WebRTC audio
-                if (
-                    "application.name = \"Google Chrome\"" in line
-                    or "application.name = \"Chromium\"" in line
-                    or "application.process.binary = \"chrome\"" in line
-                    or "media.name = \"WebRTC Voice\"" in line
-                ):
-                    if current_index:
-                        subprocess.call(["pactl", "move-sink-input", current_index, sink_name])
-                        logger.info(f" Moved Chrome/Meet stream {current_index} to {sink_name}")
-                        found = True
-                        break
-
-            if found:
-                return True
-
-            logger.info(f" No Chrome/Chromium sink-input found yet (attempt {attempt+1}/{retries}), retrying...")
-            time.sleep(delay)
-
-        logger.warning(" Gave up: no Chrome/Meet sink-input appeared")
-        return False
-
-    except Exception as e:
-        logger.error(f" Failed to move Chrome stream: {e}")
-        return False
-    
 def format_timestamp(seconds: float) -> str:
-    """Convert seconds to HH:MM:SS string."""
     hrs = int(seconds // 3600)
     mins = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
-    if hrs > 0:
-        return f"{hrs:02d}:{mins:02d}:{secs:02d}"
-    else:
-        return f"{mins:02d}:{secs:02d}"
+    return f"{hrs:02d}:{mins:02d}:{secs:02d}" if hrs > 0 else f"{mins:02d}:{secs:02d}"
 
-def scrape_captions_json(driver, stop_event=None, interval=1.5, stable_time=1.5, start_time=None, shared_list=None):
-    """
-    Robust Google Meet captions scraper.
-
-    Features:
-    - Handles multiple speakers.
-    - Only finalizes text when it stabilizes.
-    - Avoids repeated text if a speaker continues speaking later.
-    - Saves only new appended text.
-    - Ignores captions with empty speaker.
-    - Merges consecutive blocks from the same speaker.
-    """
+def scrape_captions_json(driver, stop_event=None, interval=1.5, stable_time=1.5, start_time=None, shared_list=None, bot=None, mp3_file_path=None):
     finalized_captions = [] if shared_list is None else shared_list
-    active_captions = {}         # Current text per speaker
-    last_finalized_text = {}     # Last finalized text per speaker
-    if start_time is None:
-        start_time = time.time()  # fallback   # Relative timestamp base
+    active_captions = {}
+    last_finalized_text = {}
+    start_time = start_time or time.time()
+    TRIGGER_PHRASE = "hello meeting assistant"
 
     while not (stop_event and stop_event.is_set()):
         try:
             container = driver.find_element(By.XPATH, "//div[@role='region' and @aria-label='Captions']")
             blocks = container.find_elements(By.XPATH, ".//div[contains(@class,'nMcdL')]")
             current_time = time.time()
-            updated = False
 
-            # Process blocks to merge consecutive same-speaker blocks
             merged_blocks = []
-            current_speaker = None
-            current_text = ""
-
+            current_speaker, current_text = None, ""
             for block in blocks:
                 try:
                     speaker = block.find_element(By.CSS_SELECTOR, ".NWpY1d").text.strip()
-                except:
-                    speaker = ""
-
-                # Skip empty speaker blocks
-                if not speaker:
-                    continue
-
-                try:
                     text = block.find_element(By.CSS_SELECTOR, ".VbkSUe").text.strip()
                 except:
-                    text = ""
-                if not text:
                     continue
-
-                # Merge consecutive blocks from same speaker
+                if not speaker or not text:
+                    continue
                 if speaker == current_speaker:
-                    # Same speaker - merge text
                     current_text += " " + text
                 else:
-                    # Different speaker - save previous merged block if exists
                     if current_speaker:
-                        merged_blocks.append({
-                            "speaker": current_speaker,
-                            "text": current_text.strip()
-                        })
-
-                    # Start new merged block
-                    current_speaker = speaker
-                    current_text = text
-
-            # Don't forget the last merged block
+                        merged_blocks.append({"speaker": current_speaker, "text": current_text.strip()})
+                    current_speaker, current_text = speaker, text
             if current_speaker:
-                merged_blocks.append({
-                    "speaker": current_speaker,
-                    "text": current_text.strip()
-                })
+                merged_blocks.append({"speaker": current_speaker, "text": current_text.strip()})
 
-            # Process merged blocks
             for merged_block in merged_blocks:
-                speaker = merged_block["speaker"]
-                text = merged_block["text"]
-
-                # Initialize if new speaker
+                speaker, text = merged_block["speaker"], merged_block["text"]
                 if speaker not in active_captions:
                     active_captions[speaker] = {"text": text, "last_seen": current_time, "finalized": False}
                 else:
-                    # Text changed → reset timer
                     if active_captions[speaker]["text"] != text:
                         active_captions[speaker]["text"] = text
                         active_captions[speaker]["last_seen"] = current_time
                         active_captions[speaker]["finalized"] = False
                     else:
-                        # Text stable → finalize if enough time passed
                         if not active_captions[speaker]["finalized"] and current_time - active_captions[speaker]["last_seen"] > stable_time:
                             prev_text = last_finalized_text.get(speaker, "")
-                            new_text = text
-
-                            # Remove repeated prefix
-                            if prev_text and new_text.startswith(prev_text):
-                                new_text = new_text[len(prev_text):].lstrip(". ").strip()
-
-                            if new_text:  # Only finalize non-empty new text
+                            new_text = text[len(prev_text):].lstrip(". ").strip() if prev_text and text.startswith(prev_text) else text
+                            if new_text:
                                 elapsed = current_time - start_time
-                                finalized_captions.append({
-                                    "speaker": speaker,
-                                    "text": new_text,
-                                    "timestamp": format_timestamp(elapsed)
-                                })
+                                finalized_captions.append({"speaker": speaker, "text": new_text, "timestamp": format_timestamp(elapsed)})
                                 last_finalized_text[speaker] = text
-
+                                if TRIGGER_PHRASE in new_text.lower() and bot and mp3_file_path:
+                                    bot.play_mp3_file(mp3_file_path)
                             active_captions[speaker]["finalized"] = True
 
         except Exception:
             pass
-
         time.sleep(interval)
-
     return finalized_captions
 
-
-def join_and_record_meeting(
-    request: MeetRequest,
-    record_seconds: int = 60,
-    output_file: str = "meeting_audio.wav",
-):
-    """
-    Join Google Meet as guest, disable mic/cam, record audio and captions.
-    """
+def join_and_record_meeting(request: MeetRequest, record_seconds: int = 60, output_file: str = "meeting_audio.wav"):
     record_seconds = int(record_seconds)
-    logger.info(f"Launching Chrome to join meeting: {request.meet_url}")
-
     driver = setup_chrome()
-    ffmpeg_proc = None
-    caption_thread = None
+    ffmpeg_proc, caption_thread = None, None
     stop_scraping = threading.Event()
     shared_captions = []
-    joined = False  # <-- track join status
+    joined = False
+    MP3_FILE = os.path.join(os.getcwd(), "audio", "hello.mp3")
+    bot = MeetBot(driver)
 
     try:
         driver.get(request.meet_url)
@@ -258,75 +177,44 @@ def join_and_record_meeting(
             )
             if mic_button.get_attribute("aria_pressed") != "true":
                 mic_button.click()
-                logger.info(" Mic disabled")
-        except Exception:
-            logger.warning(" Could not find mic button")
+        except: pass
 
-        # Disable cam
+        # Disable camera
         try:
             cam_button = driver.find_element(By.XPATH, "//div[@role='button'][@aria-label[contains(., 'camera')]]")
             if cam_button.get_attribute("aria_pressed") != "true":
                 cam_button.click()
-                logger.info(" Camera disabled")
-        except Exception:
-            logger.warning(" Could not find camera button")
+        except: pass
 
         # Enter name
         try:
             name_input = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.XPATH, "//input[@aria-label='Your name']"))
             )
-            guest_name = getattr(request, 'guest_name', 'Meeting Bot')
             name_input.clear()
-            name_input.send_keys(guest_name)
-            logger.info(f" Entered name: {guest_name}")
-        except Exception as e:
-            logger.warning(f" Could not enter name: {e}")
+            name_input.send_keys(getattr(request, 'guest_name', 'Meeting Bot'))
+        except: pass
 
-        # Click Ask to Join / Join now
+        # Click Join
         try:
-            ask_to_join_button = WebDriverWait(driver, 15).until(
+            WebDriverWait(driver, 15).until(
                 EC.element_to_be_clickable((By.XPATH, "//span[text()='Ask to join']/ancestor::button"))
-            )
-            ask_to_join_button.click()
-            logger.info(" Clicked Ask to join")
-        except Exception:
+            ).click()
+        except:
             try:
-                join_button = WebDriverWait(driver, 5).until(
+                WebDriverWait(driver, 5).until(
                     EC.element_to_be_clickable((By.XPATH, "//span[text()='Join now']/ancestor::button"))
-                )
-                join_button.click()
-                logger.info(" Clicked Join now (fallback)")
-            except Exception:
-                logger.warning(" Could not find join button")
+                ).click()
+            except: pass
 
         # Wait until inside meeting
         try:
             WebDriverWait(driver, 30).until(
-                lambda driver: (
-                    driver.find_elements(By.XPATH, "//button[@aria-label='Leave call']") or
-                    driver.find_elements(By.XPATH, "//*[contains(text(), 'Waiting for') or contains(text(), 'asking to join')]")
-                )
+                lambda d: d.find_elements(By.XPATH, "//button[@aria-label='Leave call']")
             )
-            if driver.find_elements(By.XPATH, "//button[@aria-label='Leave call']"):
-                logger.info(" Successfully joined the meeting")              
-                joined = True
-            else:
-                logger.info(" Waiting for host approval")
-                try:
-                    WebDriverWait(driver, 600).until(
-                        EC.presence_of_element_located((By.XPATH, "//button[@aria-label='Leave call']"))
-                    )
-                    logger.info(" Host approved - now in meeting")
-                    joined = True
-                except Exception:
-                    logger.error(" Host did not approve join request — exiting")
-                    return None, []
-        except Exception as e:
-            logger.error(f" Failed to join meeting: {e}")
-            return None, []
+            joined = True
+        except: return None, []
 
-        #  Only start recording if joined
         if joined:
             # Turn on captions
             try:
@@ -335,49 +223,28 @@ def join_and_record_meeting(
                 )
                 if "Turn on captions" in captions_button.get_attribute("aria-label"):
                     captions_button.click()
-                    logger.info(" Captions turned ON")
-                else:
-                    logger.info(" Captions already ON")
-            except Exception:
-                logger.warning(" Could not enable captions")
+            except: pass
 
             # Move Chrome audio to virtual sink
             move_chrome_to_sink("meet_sink")
 
             start_time = time.time()
-            # Start captions scraping thread
             caption_thread = threading.Thread(
                 target=scrape_captions_json,
-                args=(driver, stop_scraping, 1.5, 1.5, start_time, shared_captions),
+                args=(driver, stop_scraping, 1.5, 1.5, start_time, shared_captions, bot, MP3_FILE),
                 daemon=True
             )
             caption_thread.start()
-            logger.info(" Started captions scraping")
 
-            # Start FFmpeg
             ffmpeg_proc = start_ffmpeg(output_file)
-            logger.info(f" Recording meeting audio for {record_seconds} seconds...")
 
             # Recording loop
-            start_time = time.time()
-            while True:
-                elapsed = time.time() - start_time
-
-                # Meeting ended?
+            while time.time() - start_time < record_seconds:
                 try:
                     leave_button = driver.find_element(By.XPATH, "//button[@aria-label='Leave call']")
                     if not leave_button.is_displayed():
-                        logger.info(" Leave call button disappeared — meeting ended")
                         break
-                except:
-                    logger.info(" Leave call button not found — meeting likely ended")
-                    break
-
-                # Timeout
-                if elapsed > record_seconds:
-                    logger.info(" Max recording time reached — stopping")
-                    break
-
+                except: break
                 time.sleep(2)
 
     finally:
@@ -385,17 +252,12 @@ def join_and_record_meeting(
         if caption_thread:
             caption_thread.join(timeout=5)
         driver.quit()
-        logger.info(" Browser closed")
-
+        bot.stop()
         if ffmpeg_proc:
-            try:
-                ffmpeg_proc.terminate()
-                ffmpeg_proc.wait()
-                logger.info(f" Meeting audio saved to: {output_file}")
-            except Exception as e:
-                logger.warning(f" Failed to stop FFmpeg: {e}")
+            ffmpeg_proc.terminate()
+            ffmpeg_proc.wait()
 
-        return output_file if joined else None, shared_captions if joined else []
+    return output_file if joined else None, shared_captions if joined else []
 def parse_timestamp_to_seconds(timestamp: str) -> float:
     """Convert HH:MM:SS or MM:SS timestamp to seconds."""
     parts = timestamp.split(':')
