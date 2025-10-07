@@ -18,7 +18,7 @@ from app.schemas.transcript import TranscriptUtterance
 from .meet_bot import MeetBot  # <-- Import your MeetBot class
 
 logger = logging.getLogger(__name__)
-
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 def setup_chrome():
     profile_dir = os.path.join(os.getcwd(), "chrome_profile")
     os.makedirs(profile_dir, exist_ok=True)
@@ -44,7 +44,7 @@ def setup_chrome():
     driver = webdriver.Chrome(service=service, options=chrome_options)
     
     try:
-        js_file_path = os.path.join(os.getcwd(), "js", "botOutputManager.js")
+        js_file_path = os.path.join(PROJECT_ROOT, "js", "botOutputManager.js")
         if not os.path.exists(js_file_path):
             raise FileNotFoundError(f"botOutputManager.js not found at {js_file_path}")
 
@@ -163,7 +163,7 @@ def join_and_record_meeting(request: MeetRequest, record_seconds: int = 60, outp
     stop_scraping = threading.Event()
     shared_captions = []
     joined = False
-    MP3_FILE = os.path.join(os.getcwd(), "audio", "hello.mp3")
+    MP3_FILE = os.path.join(PROJECT_ROOT, "audio", "hello.mp3")
     bot = MeetBot(driver)
 
     try:
