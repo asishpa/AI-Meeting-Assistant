@@ -4,9 +4,9 @@ import logging
 from typing import Dict
 from google import genai
 from google.genai import types
-
+from dotenv import load_dotenv
 logger = logging.getLogger(__name__)
-
+load_dotenv() 
 # Load API key
 GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
 if not GEMINI_API_KEY:
