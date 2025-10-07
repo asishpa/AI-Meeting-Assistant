@@ -7,7 +7,7 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-DEEPGRAM_API_KEY = "YOUR_DEEPGRAM_API_KEY"
+DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 DEEPGRAM_WS_URL = "wss://api.deepgram.com/v1/speak?voice=alloy"
 
 logger = logging.getLogger(__name__)

@@ -53,15 +53,14 @@ class MeetBot:
             return
         with self.lock:
             self.bot_playing = True
+
         def runner():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-            loop.run_until_complete(stream_tts_to_audio_manager_ws(text, self.audio_manager))
+            asyncio.run(stream_tts_to_audio_manager_ws(text, self.audio_manager))
             with self.lock:
                 self.bot_playing = False
 
         threading.Thread(target=runner, daemon=True).start()
+
 
     def handle_caption(self, caption_text: str):
         """Main logic for trigger + AI interaction."""
