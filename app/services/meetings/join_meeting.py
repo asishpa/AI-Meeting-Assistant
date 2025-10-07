@@ -1,4 +1,3 @@
-# join_and_record_meeting.py
 import os
 import time
 import logging
@@ -9,7 +8,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from app.schemas.meet import MeetRequest,MeetingMetadataDetails
+from app.schemas.meet import MeetRequest, MeetingMetadataDetails
 
 import threading
 from typing import Dict, List, Any
@@ -19,6 +18,8 @@ from .meet_bot import MeetBot  # <-- Import your MeetBot class
 
 logger = logging.getLogger(__name__)
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
 def setup_chrome():
     profile_dir = os.path.join(os.getcwd(), "chrome_profile")
     os.makedirs(profile_dir, exist_ok=True)
@@ -34,7 +35,6 @@ def setup_chrome():
         "profile.default_content_setting_values.notifications": 1
     })
     chrome_options.add_argument('--autoplay-policy=no-user-gesture-required')
-    # chrome_options.add_argument('--headless=new')
     chrome_options.add_argument('--no-sandbox')
     chrome_options.add_argument('--disable-dev-shm-usage')
     chrome_options.add_argument('--disable-gpu')
@@ -57,6 +57,7 @@ def setup_chrome():
     
     return driver
 
+
 def start_ffmpeg(output_file="meeting_audio.wav"):
     return subprocess.Popen([
         "ffmpeg",
@@ -67,6 +68,7 @@ def start_ffmpeg(output_file="meeting_audio.wav"):
         "-ar", "16000",
         output_file
     ])
+
 
 def move_chrome_to_sink(sink_name="meet_sink", retries=15, delay=2):
     for attempt in range(retries):
@@ -92,11 +94,13 @@ def move_chrome_to_sink(sink_name="meet_sink", retries=15, delay=2):
     logger.warning(" No Chrome/Meet sink-input appeared")
     return False
 
+
 def format_timestamp(seconds: float) -> str:
     hrs = int(seconds // 3600)
     mins = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
     return f"{hrs:02d}:{mins:02d}:{secs:02d}" if hrs > 0 else f"{mins:02d}:{secs:02d}"
+
 
 def scrape_captions_json(
     driver,
@@ -105,14 +109,12 @@ def scrape_captions_json(
     stable_time=1.5,
     start_time=None,
     shared_list=None,
-    bot=None,
-    mp3_file_path=None
+    bot=None
 ):
     finalized_captions = [] if shared_list is None else shared_list
     active_captions = {}
     last_finalized_text = {}
     start_time = start_time or time.time()
-    TRIGGER_PHRASE = "hello meeting assistant"
 
     while not (stop_event and stop_event.is_set()):
         try:
@@ -144,17 +146,13 @@ def scrape_captions_json(
                 if speaker not in active_captions:
                     active_captions[speaker] = {"text": text, "last_seen": current_time, "finalized": False}
                 else:
-                    # Caption changed -> speaker is still talking
                     if active_captions[speaker]["text"] != text:
                         active_captions[speaker]["text"] = text
                         active_captions[speaker]["last_seen"] = current_time
                         active_captions[speaker]["finalized"] = False
 
-                        #  Someone started talking again while bot is speaking → stop bot
                         if bot and getattr(bot, "bot_playing", False):
                             bot.stop_mp3()
-
-                    # Caption stable for enough time -> finalize it
                     else:
                         if not active_captions[speaker]["finalized"] and current_time - active_captions[speaker]["last_seen"] > stable_time:
                             prev_text = last_finalized_text.get(speaker, "")
@@ -172,14 +170,17 @@ def scrape_captions_json(
                                 })
                                 last_finalized_text[speaker] = text
 
-                                if TRIGGER_PHRASE in new_text.lower() and bot and mp3_file_path:
-                                    if not bot.bot_playing:  # prevent overlap
-                                        bot.play_mp3_file(mp3_file_path)
+                                # 🔹 Updated logic — use MeetBot's caption handler
+                                if bot:
+                                    threading.Thread(
+                                        target=bot.handle_caption,
+                                        args=(new_text,),
+                                        daemon=True
+                                    ).start()
 
                             active_captions[speaker]["finalized"] = True
 
         except Exception as e:
-            # Optional debug: logger.warning(f"Caption scraping error: {e}")
             logger.info(f" Caption scrape err: {e}")
         time.sleep(interval)
 
