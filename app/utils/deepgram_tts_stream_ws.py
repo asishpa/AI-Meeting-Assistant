@@ -44,24 +44,25 @@ async def stream_tts_to_audio_manager_ws(text: str, audio_manager):
         tts_done_event = asyncio.Event()
 
         # --- Event Handlers ---
-        def on_open(open, **kwargs):
-            logger.info(f"Deepgram connection opened: {open}")
+        def on_open(client, event, **kwargs):
+            logger.info(f"Deepgram connection opened: {event}")
             audio_manager.start_streaming()
 
-        def on_audio(data, **kwargs):
-            # Resample 48 kHz -> audio_manager SAMPLE_RATE
+        def on_audio(client, data, **kwargs):
             resampled_chunk = resample_pcm_48k_to_target(data, audio_manager.SAMPLE_RATE)
             audio_manager.push_stream_chunk(resampled_chunk)
 
-        def on_close(close, **kwargs):
-            logger.info(f"Deepgram connection closed: {close}")
+        def on_close(client, event, **kwargs):
+            logger.info(f"Deepgram connection closed: {event}")
             audio_manager.stop()
             tts_done_event.set()
 
-        def on_error(error, **kwargs):
-            logger.error(f"Deepgram TTS error: {error}")
+        def on_error(client, event, **kwargs):
+            logger.error(f"Deepgram TTS error: {event}")
             audio_manager.stop()
             tts_done_event.set()
+
+
 
         # Register event handlers
         dg_connection.on(SpeakWebSocketEvents.Open, on_open)
