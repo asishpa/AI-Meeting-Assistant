@@ -32,6 +32,6 @@ langchain-community>=0.3.0
 langchain-cohere
 asgiref
 langchain-chroma
-websockets
-
+websockets==10.1
+scipy
 
