@@ -1,11 +1,7 @@
-# utils/deepgram_tts_stream_ws.py
-
 import asyncio
 import logging
 import os
 from dotenv import load_dotenv
-import numpy as np
-from scipy.signal import resample_poly
 from deepgram import DeepgramClient, SpeakWebSocketEvents
 
 load_dotenv()
@@ -15,12 +11,6 @@ logger = logging.getLogger(__name__)
 
 # Deepgram outputs 48 kHz PCM
 DEEPGRAM_SAMPLE_RATE = 48000
-
-def resample_pcm_48k_to_target(pcm_bytes: bytes, target_rate: int) -> bytes:
-    """Resample 16-bit PCM from 48 kHz to target sample rate."""
-    pcm = np.frombuffer(pcm_bytes, dtype=np.int16)
-    resampled = resample_poly(pcm, target_rate, DEEPGRAM_SAMPLE_RATE)
-    return resampled.astype(np.int16).tobytes()
 
 
 async def stream_tts_to_audio_manager_ws(text: str, audio_manager):
@@ -49,8 +39,8 @@ async def stream_tts_to_audio_manager_ws(text: str, audio_manager):
             audio_manager.start_streaming()
 
         def on_audio(client, data, **kwargs):
-            resampled_chunk = resample_pcm_48k_to_target(data, audio_manager.SAMPLE_RATE)
-            audio_manager.push_stream_chunk(resampled_chunk)
+            # Feed Deepgram PCM directly (48 kHz) to audio manager
+            audio_manager.push_stream_chunk(data)
 
         def on_close(client, event, **kwargs):
             logger.info(f"Deepgram connection closed: {event}")
@@ -61,8 +51,6 @@ async def stream_tts_to_audio_manager_ws(text: str, audio_manager):
             logger.error(f"Deepgram TTS error: {event}")
             audio_manager.stop()
             tts_done_event.set()
-
-
 
         # Register event handlers
         dg_connection.on(SpeakWebSocketEvents.Open, on_open)

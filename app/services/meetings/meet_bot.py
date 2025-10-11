@@ -5,7 +5,7 @@ from app.utils.gemini_ai_client import query_gemini_search
 import asyncio
 from app.utils.deepgram_tts_stream_ws import stream_tts_to_audio_manager_ws
 class MeetBot:
-    def __init__(self, driver, sample_rate=44100):
+    def __init__(self, driver, sample_rate=48000):
         self.driver = driver
         self.SAMPLE_RATE = sample_rate
         self.audio_manager = RealtimeAudioOutputManager(
