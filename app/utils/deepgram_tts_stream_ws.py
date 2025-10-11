@@ -58,11 +58,12 @@ async def stream_tts_to_audio_manager_ws(text: str, audio_manager):
         dg_connection.on(SpeakWebSocketEvents.Error, on_error)
 
         # Configure audio options (48 kHz PCM output)
-        options = SpeakOptions(
-            model="aura-2-thalia-en",
-            encoding="linear16",
-            sample_rate=44100,
-        )
+        options = {
+            "model": "aura-2-thalia-en",
+            "encoding": "linear16",
+            "sample_rate": 48000,
+        }
+
 
         # Start WebSocket connection
         if dg_connection.start(options) is False:
