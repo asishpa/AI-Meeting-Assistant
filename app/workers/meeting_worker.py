@@ -3,12 +3,11 @@ from celery import Celery
 import os
 import logging
 import shutil
-from asgiref.sync import async_to_sync
 
 from app.services.meetings.join_meeting import join_and_record_meeting, process_meeting_transcript
 from app.utils.transcript import transcribe_file_json_deepgram
 from app.schemas.meet import MeetRequest
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal  # <- sync session for Celery
 from app.models.meeting import Meeting
 from app.utils.s3 import upload_to_s3, S3_BUCKET
 from app.services.meeting_pipeline.summarizer import generate_meeting_summary as generate_langchain_summary
@@ -17,31 +16,31 @@ from chatbot.indexing import index_meeting
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-minio_bucket = "meeting-audio"
+BASE_AUDIO_DIR = "/tmp/meetings"
+
 celery_app = Celery(
     "meeting_worker",
     broker="redis://localhost:6379/0",
     backend="redis://localhost:6379/0"
 )
-BASE_AUDIO_DIR = "/tmp/meetings"
 
 
 @celery_app.task
 def record_meeting_task(job_data: dict):
     """
     Celery task to record meeting + generate transcript + capture captions.
-    Runs async code safely using async_to_sync.
+    Fully sync-safe for DB operations.
     """
-    async_to_sync(run_meeting_task)(job_data)
+    run_meeting_task(job_data)
 
 
-async def run_meeting_task(job_data: dict):
+def run_meeting_task(job_data: dict):
     request_dict = job_data["request"]
     user_id = job_data["user_id"]
     request = MeetRequest(**request_dict)
 
     timestamp = datetime.now().strftime("%Y%m%dT%H%M%S")
-    meeting_id = request.meet_url.replace("https://", "").replace("/", "_")  # sanitize
+    meeting_id = request.meet_url.replace("https://", "").replace("/", "_")
     meeting_folder = os.path.join(BASE_AUDIO_DIR, str(user_id), meeting_id, timestamp)
     os.makedirs(meeting_folder, exist_ok=True)
 
@@ -81,13 +80,14 @@ async def run_meeting_task(job_data: dict):
         [f"{seg['speaker_name']}: {seg['text']}" for seg in results["merged_transcript"]["transcript"]]
     )
     logger.info(f"Transcript Text:\n{transcript_text}")
+
     meeting_id = request.meet_url.rstrip("/").split("/")[-1]
     index_meeting(meeting_id=meeting_id, transcript_text=transcript_text)
 
     final_summary = generate_langchain_summary(transcript_text)
     logger.info(f"Final Summary:\n{final_summary}")
 
-    # Step 5 — Save meeting to DB
+    # Step 5 — Save meeting to DB (sync)
     db_data = {
         "transcript": transcript,
         "summary": final_summary,
@@ -98,27 +98,30 @@ async def run_meeting_task(job_data: dict):
         "audio_object": audio_object,
         "participants": speakers,
     }
-    await save_meeting_to_db(request, db_data)
+    save_meeting_to_db(request, db_data)
 
     # Step 6 — Clean up
     shutil.rmtree(meeting_folder, ignore_errors=True)
 
 
-async def save_meeting_to_db(request: MeetRequest, results: dict):
-    async with SessionLocal() as db:
-        async with db.begin():
-            meeting = Meeting(
-                title="Meeting",
-                participants=results.get("participants"),
-                start_time=datetime.now(timezone.utc),
-                transcript=[utt.dict() for utt in results.get("transcript", [])],
-                summary=results.get("summary"),
-                captions=results.get("captions"),
-                merged_transcript=results.get("merged_transcript"),
-                user_id=results.get("user_id"),
-                meet_url=request.meet_url,
-                audio_object=results.get("audio_object")
-            )
-            db.add(meeting)
-        await db.refresh(meeting)
+def save_meeting_to_db(request: MeetRequest, results: dict):
+    """
+    Sync DB save for Celery worker
+    """
+    with SessionLocal() as db:
+        meeting = Meeting(
+            title="Meeting",
+            participants=results.get("participants"),
+            start_time=datetime.now(timezone.utc),
+            transcript=[utt.dict() for utt in results.get("transcript", [])],
+            summary=results.get("summary"),
+            captions=results.get("captions"),
+            merged_transcript=results.get("merged_transcript"),
+            user_id=results.get("user_id"),
+            meet_url=request.meet_url,
+            audio_object=results.get("audio_object")
+        )
+        db.add(meeting)
+        db.commit()
+        db.refresh(meeting)
     return meeting
