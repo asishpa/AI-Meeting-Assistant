@@ -1,5 +1,5 @@
 from langchain_cohere import CohereEmbeddings
-from langchain_chroma import Chroma
+from langchain.vectorstores import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.schema import Document
 from dotenv import load_dotenv
@@ -39,5 +39,4 @@ def index_meeting(meeting_id: str, transcript_text: str, metadata: dict = None):
         persist_directory=PERSIST_DIR,
         collection_name="meetings"
     )
-    vectorstore.persist()
     return vectorstore

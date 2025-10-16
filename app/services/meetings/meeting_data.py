@@ -38,6 +38,7 @@ class MeetingService:
                 status_code=status.HTTP_400_BAD_REQUEST
             )
         audio_url = generate_presigned_url(S3_BUCKET, meeting.audio_object)
+        transcript = meeting
         meeting_data = MeetingDetails.model_validate(meeting)
         meeting_data.audio_url = audio_url
         return meeting_data
