@@ -17,7 +17,7 @@ if not COHERE_API_KEY:
 embeddings = CohereEmbeddings(model="large")
 
 # Remote Chroma client
-client = HttpClient(host="localhost", port=8001)
+client = HttpClient(host="chroma", port=8000)
 
 def index_meeting(meeting_id: str, transcript_text: str, metadata: dict = None):
     # Split transcript

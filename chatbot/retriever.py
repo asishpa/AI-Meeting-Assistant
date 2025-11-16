@@ -6,7 +6,7 @@ def get_retriever(meeting_id: str):
     embeddings = CohereEmbeddings(model="large")
 
     # Connect to remote Chroma server
-    client = HttpClient(host="localhost", port=8001)
+    client = HttpClient(host="chroma", port=8000)
 
     vectorstore = Chroma(
         client=client,
