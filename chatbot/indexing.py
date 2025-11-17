@@ -1,29 +1,30 @@
 from langchain_cohere import CohereEmbeddings
-from langchain.vectorstores import Chroma
+from langchain_chroma import Chroma
+from chromadb import HttpClient
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.schema import Document
 from dotenv import load_dotenv
 import os
 
-# Load environment variables from .env
+# Load environment variables
 load_dotenv()
 
-PERSIST_DIR = "./chroma_db"
-
-# Read Cohere API key from environment
 COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 if not COHERE_API_KEY:
     raise ValueError("COHERE_API_KEY not found in environment variables")
 
-# Initialize Cohere embeddings
+# Embeddings
 embeddings = CohereEmbeddings(model="large")
 
+# Remote Chroma client
+client = HttpClient(host="chroma", port=8000)
+
 def index_meeting(meeting_id: str, transcript_text: str, metadata: dict = None):
-    # Split transcript into chunks
+    # Split transcript
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     chunks = splitter.split_text(transcript_text)
 
-    # Create Document objects
+    # Prepare documents
     docs = [
         Document(
             page_content=chunk,
@@ -32,11 +33,12 @@ def index_meeting(meeting_id: str, transcript_text: str, metadata: dict = None):
         for idx, chunk in enumerate(chunks)
     ]
 
-    # Create and persist Chroma vector store
+    # Upload to remote Chroma collection
     vectorstore = Chroma.from_documents(
         documents=docs,
         embedding=embeddings,
-        persist_directory=PERSIST_DIR,
-        collection_name="meetings"
+        collection_name="meetings",
+        client=client  # IMPORTANT: remote Chroma
     )
+
     return vectorstore
